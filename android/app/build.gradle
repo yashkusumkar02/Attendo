@@ -1,0 +1,51 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"  // ✅ Ensure Flutter plugin is applied correctly
+    id "com.google.gms.google-services"  // ✅ Google Services plugin for Firebase
+}
+
+android {
+    namespace = "com.example.attendo"
+    compileSdk = 34  // ✅ Ensure latest SDK version is used
+    ndkVersion "25.1.8937393"
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+    kotlinOptions {
+        jvmTarget = "11"
+    }
+
+    defaultConfig {
+        applicationId = "com.example.attendo"
+        minSdk = 23
+        targetSdk = 34  // ✅ Ensure target SDK is up-to-date
+        versionCode = 1
+        versionName = "1.0"
+    }
+
+    dependencies {
+        implementation platform('com.google.firebase:firebase-bom:33.9.0') // ✅ Firebase BOM
+        implementation 'com.google.firebase:firebase-auth'
+        implementation 'com.google.firebase:firebase-firestore'
+        implementation 'com.google.firebase:firebase-storage'
+//        implementation 'com.google.android.gms:play-services-base:18.5.0'
+//        implementation 'com.google.android.gms:play-services-auth:21.3.0'
+//        implementation 'com.google.android.gms:play-services-location:21.3.0'
+//        implementation 'com.google.android.gms:play-services-security:19.1.0'
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.debug
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}

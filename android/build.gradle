@@ -1,0 +1,34 @@
+buildscript {
+    repositories {
+        google()  // ✅ Ensure Google repository is added
+        mavenCentral()  // ✅ Ensure Maven Central is added
+        gradlePluginPortal()  // ✅ Ensure Gradle Plugin Portal is included
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.4.2'
+        // ✅ Correct Gradle Plugin version
+        classpath 'com.google.gms:google-services:4.4.2'  // ✅ Correct Google Services Plugin version
+    }
+}
+
+allprojects {
+    repositories {
+        google()  // ✅ Required for Firebase & Play Services
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+rootProject.buildDir = "../build"
+
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}
