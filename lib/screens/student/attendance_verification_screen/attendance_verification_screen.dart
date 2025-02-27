@@ -10,6 +10,7 @@ class AttendanceVerificationScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ Fetch class details on screen load
     var args = Get.arguments;
     if (args != null && args["classId"] != null && args["className"] != null) {
       controller.classId.value = args["classId"];
