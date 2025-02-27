@@ -1,6 +1,4 @@
 import 'package:attendo/controllers/student_controller/student_class_details_controller/student_class_details_controller.dart';
-import 'package:attendo/controllers/student_controller/student_dashboard_controller/student_controller.dart';
-import 'package:attendo/routes/app_routes.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -39,7 +37,7 @@ class StudentClassDetailsScreen extends StatelessWidget {
         body: TabBarView(
           children: [
             _buildClassTab(),
-            _buildStudentsTab(), // ✅ Now defined properly
+            _buildStudentsTab(),
           ],
         ),
       ),
@@ -67,9 +65,7 @@ class StudentClassDetailsScreen extends StatelessWidget {
           Obx(() => controller.liveClasses.isEmpty
               ? Text("No live classes", style: GoogleFonts.poppins(fontSize: 14))
               : Column(
-            children: controller.liveClasses
-                .map((liveClass) => _liveClassTile(liveClass))
-                .toList(),
+            children: controller.liveClasses.map((liveClass) => _liveClassTile(liveClass)).toList(),
           )),
 
           SizedBox(height: 20),
@@ -79,9 +75,7 @@ class StudentClassDetailsScreen extends StatelessWidget {
           Obx(() => controller.previousClasses.isEmpty
               ? Text("No previous classes", style: GoogleFonts.poppins(fontSize: 14))
               : Column(
-            children: controller.previousClasses
-                .map((prevClass) => _previousClassTile(prevClass))
-                .toList(),
+            children: controller.previousClasses.map((prevClass) => _previousClassTile(prevClass)).toList(),
           )),
         ],
       ),
@@ -113,9 +107,6 @@ class StudentClassDetailsScreen extends StatelessWidget {
     );
   }
 
-  /// ✅ LIVE CLASS CARD
-  /// ✅ LIVE CLASS CARD (Displays Class Timing)
-  /// 📌 LIVE CLASS CARD
   /// ✅ LIVE CLASS CARD (Displays Class Timing)
   Widget _liveClassTile(Map<String, dynamic> liveClass) {
     return Card(
@@ -144,7 +135,7 @@ class StudentClassDetailsScreen extends StatelessWidget {
           height: 40,
           child: ElevatedButton(
             onPressed: controller.isAttendanceMarked.value
-                ? null // ❌ Disable Button
+                ? null
                 : () {
               final classController = Get.find<StudentClassDetailsController>();
               classController.navigateToAttendanceVerification();
@@ -158,8 +149,6 @@ class StudentClassDetailsScreen extends StatelessWidget {
       ),
     );
   }
-
-
 
   /// ✅ PREVIOUS CLASS CARD
   Widget _previousClassTile(Map<String, dynamic> prevClass) {

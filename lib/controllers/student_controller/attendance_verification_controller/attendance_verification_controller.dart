@@ -8,20 +8,20 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 class AttendanceVerificationController extends GetxController {
-  var classId = "".obs;  // ✅ Fixed: Added missing classId
-  var className = "".obs;  // ✅ Fixed: Added missing className
+  var classId = "".obs;
+  var className = "".obs;
   var faceScanned = false.obs;
   var locationVerified = false.obs;
   var studentLocation = Rx<LatLng?>(null);
   var teacherLocation = Rx<LatLng?>(null);
   var correctClassCode = "".obs;
   var classFetched = false.obs;
-
-  var isAttendanceMarked = false.obs; // ✅ Track attendance status
+  var endTime = "".obs;
+  var isAttendanceMarked = false.obs;
 
   TextEditingController classCodeController = TextEditingController();
 
-  /// ✅ **Fetch Teacher's Location & Class Code**
+  /// ✅ **Fetch Class Details**
   Future<void> fetchClassDetails() async {
     try {
       if (classId.value.isEmpty) {
@@ -46,6 +46,7 @@ class AttendanceVerificationController extends GetxController {
         );
 
         correctClassCode.value = data["classCode"];
+        endTime.value = data["endTime"]; // ✅ Store End Time
         classFetched.value = true;
 
         Get.snackbar("Success", "Class details fetched successfully!");
@@ -58,7 +59,6 @@ class AttendanceVerificationController extends GetxController {
   }
 
   /// ✅ **Get Student's Current Location**
-  /// ✅ **Get Student's Current Location & Check Distance Automatically**
   Future<void> getStudentLocation() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -80,25 +80,12 @@ class AttendanceVerificationController extends GetxController {
 
     print("✅ Student Location: ${position.latitude}, ${position.longitude}");
 
-    // ✅ Automatically check distance and show alert if needed
     if (!isWithinAllowedDistance()) {
       _showLocationErrorDialog();
     }
   }
-  /// ✅ **Auto-check Student Distance Every 5 Seconds**
-  void startDistanceCheck() {
-    ever(studentLocation, (_) {
-      if (!isWithinAllowedDistance()) {
-        _showLocationErrorDialog();
-      }
-    });
 
-    // Periodically check the distance every 5 seconds
-    Future.delayed(Duration(seconds: 5), startDistanceCheck);
-  }
-
-
-  /// ✅ **Check if Student is within 50m Circular Radius**
+  /// ✅ **Check if Student is within 50m**
   bool isWithinAllowedDistance() {
     if (studentLocation.value == null || teacherLocation.value == null) return false;
 
@@ -108,16 +95,13 @@ class AttendanceVerificationController extends GetxController {
     );
 
     print("📏 Student is $distance meters away from the teacher.");
-
-    return distance <= 50; // ✅ Returns true if within 50m, false otherwise
+    return distance <= 50;
   }
-
 
   /// ✅ **Scan & Verify Face**
   Future<void> scanFace() async {
-    // Check if student is within 50 meters before scanning
     if (!isWithinAllowedDistance()) {
-      _showLocationErrorDialog(); // ✅ Show alert if too far
+      _showLocationErrorDialog();
       return;
     }
 
@@ -126,12 +110,7 @@ class AttendanceVerificationController extends GetxController {
     Get.snackbar("Success", "Face successfully verified.");
   }
 
-
   /// ✅ **Verify Attendance**
-  /// ✅ **Verify Attendance**
-  /// ✅ **Verify Attendance**
-  /// ✅ **Verify Attendance**
-  /// ✅ **Verify & Mark Attendance**
   Future<void> verifyAttendance() async {
     if (!classFetched.value || !isWithinAllowedDistance()) {
       Get.snackbar("Error", "You are too far from the teacher’s location!");
@@ -148,38 +127,24 @@ class AttendanceVerificationController extends GetxController {
       return;
     }
 
+    if (_isAttendanceTimeOver()) {
+      Get.snackbar("Error", "Attendance time is over!");
+      return;
+    }
+
     await markAttendance();
-
-    isAttendanceMarked.value = true; // ✅ Update UI to disable button
-
-    // ✅ Move class from Live to Previous
-    previousClasses.add(liveClasses.first);
-    liveClasses.removeAt(0);
+    isAttendanceMarked.value = true;
   }
 
+  /// ✅ **Check if Attendance Time is Over**
+  bool _isAttendanceTimeOver() {
+    if (endTime.value.isEmpty) return false;
 
-  /// ✅ **Show Alert if Student is Too Far**
-  void _showLocationErrorDialog() {
-    Get.defaultDialog(
-      title: "Location Error",
-      content: const Column(
-        children: [
-          Icon(Icons.location_off, color: Colors.red, size: 50),
-          SizedBox(height: 10),
-          Text(
-            "You are too far from the teacher's location!\nAttendance access is restricted.",
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-      barrierDismissible: false, // Prevent user from closing manually
-      confirm: ElevatedButton(
-        onPressed: () => Get.back(),
-        child: Text("OK"),
-      ),
-    );
+    DateTime now = DateTime.now();
+    DateTime classEndTime = DateTime.parse(endTime.value);
+
+    return now.isAfter(classEndTime);
   }
-
 
   /// ✅ **Mark Attendance**
   Future<void> markAttendance() async {
@@ -193,5 +158,56 @@ class AttendanceVerificationController extends GetxController {
 
     Get.snackbar("Success", "Attendance marked successfully!");
     Get.offNamed(AppRoutes.studentDashboard);
+  }
+
+  /// ✅ **Mark Absent Students**
+  Future<void> markAbsentees() async {
+    QuerySnapshot studentSnapshot = await FirebaseFirestore.instance
+        .collection("classrooms")
+        .doc(classId.value)
+        .collection("students")
+        .get();
+
+    for (var doc in studentSnapshot.docs) {
+      String studentId = doc.id;
+      DocumentSnapshot attendanceDoc = await FirebaseFirestore.instance
+          .collection("classrooms")
+          .doc(classId.value)
+          .collection("attendance")
+          .doc(correctClassCode.value)
+          .collection("students")
+          .doc(studentId)
+          .get();
+
+      if (!attendanceDoc.exists) {
+        await FirebaseFirestore.instance.collection("classrooms").doc(classId.value).collection("attendance").doc(correctClassCode.value).collection("students").doc(studentId).set({
+          "studentId": studentId,
+          "attendanceStatus": "Absent",
+          "timestamp": FieldValue.serverTimestamp(),
+        });
+      }
+    }
+  }
+
+  /// ✅ **Show Location Error**
+  void _showLocationErrorDialog() {
+    Get.defaultDialog(
+      title: "Location Error",
+      content: Column(
+        children: [
+          Icon(Icons.location_off, color: Colors.red, size: 50),
+          SizedBox(height: 10),
+          Text(
+            "You are too far from the teacher's location!\nAttendance access is restricted.",
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+      barrierDismissible: false,
+      confirm: ElevatedButton(
+        onPressed: () => Get.back(),
+        child: Text("OK"),
+      ),
+    );
   }
 }

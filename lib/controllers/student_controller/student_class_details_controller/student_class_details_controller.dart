@@ -1,6 +1,6 @@
-import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:get/get.dart';
 import 'package:latlong2/latlong.dart';
 
 class StudentClassDetailsController extends GetxController {
@@ -12,6 +12,12 @@ class StudentClassDetailsController extends GetxController {
   var liveClasses = <Map<String, dynamic>>[].obs;
   var previousClasses = <Map<String, dynamic>>[].obs;
   var studentsList = <Map<String, dynamic>>[].obs;
+
+  // ✅ Missing variables added
+  var isAttendanceMarked = false.obs;
+  var classFetched = false.obs;
+  var correctClassCode = "".obs;
+  var teacherLocation = Rx<LatLng?>(null);
 
   @override
   void onInit() {
@@ -28,12 +34,11 @@ class StudentClassDetailsController extends GetxController {
 
   Future<void> navigateToAttendanceVerification() async {
     try {
-      // ✅ Fetch the latest class the student is part of
       String studentId = FirebaseAuth.instance.currentUser!.uid;
 
       QuerySnapshot classQuery = await FirebaseFirestore.instance
           .collection("classrooms")
-          .where("students", arrayContains: studentId) // ✅ Fetch class where student is enrolled
+          .where("students", arrayContains: studentId)
           .get();
 
       if (classQuery.docs.isEmpty) {
@@ -41,25 +46,20 @@ class StudentClassDetailsController extends GetxController {
         return;
       }
 
-      // ✅ Assume the student is currently in the first fetched class (modify logic if needed)
       var classData = classQuery.docs.first.data() as Map<String, dynamic>;
 
       String classId = classQuery.docs.first.id;
       String className = classData["name"];
 
-      print("✅ Navigating to Attendance Verification for classId: $classId, className: $className");
-
-      // ✅ Navigate dynamically
       Get.toNamed('/attendance-verification', arguments: {
         "classId": classId,
         "className": className,
       });
-
     } catch (e) {
-      print("❌ Error fetching student class: $e");
       Get.snackbar("Error", "Failed to fetch class details.");
     }
   }
+
   Future<void> checkStudentAttendance() async {
     String studentId = FirebaseAuth.instance.currentUser!.uid;
 
@@ -77,10 +77,7 @@ class StudentClassDetailsController extends GetxController {
     }
   }
 
-
-
-  /// 📌 Fetch Class Details (Teacher Name, Semester, Year)
-  /// ✅ **Check if Attendance is Already Marked**
+  /// ✅ **Fetch Class Details**
   Future<void> fetchClassDetails() async {
     try {
       if (classId.value.isEmpty) {
@@ -117,21 +114,6 @@ class StudentClassDetailsController extends GetxController {
     }
   }
 
-
-  /// 📌 Fetch Teacher Name from Firestore
-  Future<String> fetchTeacherName(String teacherId) async {
-    try {
-      DocumentSnapshot teacherDoc = await FirebaseFirestore.instance.collection("users").doc(teacherId).get();
-      if (teacherDoc.exists) {
-        return teacherDoc["name"] ?? "Unknown Teacher";
-      }
-    } catch (e) {
-      print("Error fetching teacher name: $e");
-    }
-    return "Unknown Teacher";
-  }
-
-  /// 📌 Fetch Students List (From `students` Collection)
   Future<void> fetchStudentsList() async {
     try {
       QuerySnapshot studentsSnapshot = await FirebaseFirestore.instance
@@ -145,16 +127,14 @@ class StudentClassDetailsController extends GetxController {
         var data = doc.data() as Map<String, dynamic>;
         studentsList.add({
           "name": data["name"] ?? "Unknown Student",
-          "status": "Present" // Default status, can be updated later
+          "status": "Present"
         });
       }
     } catch (e) {
-      print("Error fetching students list: $e");
+      Get.snackbar("Error", "Failed to fetch students list.");
     }
   }
 
-  /// 📌 Fetch Attendance Records (Live & Previous Classes)
-  /// 📌 Fetch Attendance Records (Live & Previous Classes)
   Future<void> fetchAttendanceRecords() async {
     try {
       QuerySnapshot attendanceSnapshot = await FirebaseFirestore.instance
@@ -171,11 +151,11 @@ class StudentClassDetailsController extends GetxController {
 
         String startTime = data.containsKey("startTime") && data["startTime"] != null
             ? data["startTime"]
-            : "N/A"; // ✅ Set Default Time if Missing
+            : "N/A";
 
         String endTime = data.containsKey("endTime") && data["endTime"] != null
             ? data["endTime"]
-            : "N/A"; // ✅ Set Default Time if Missing
+            : "N/A";
 
         bool hasAttended = await checkStudentAttendanceForClass(doc.id);
 
@@ -196,11 +176,10 @@ class StudentClassDetailsController extends GetxController {
         }
       }
     } catch (e) {
-      print("Error fetching attendance records: $e");
+      Get.snackbar("Error", "Failed to fetch attendance records.");
     }
   }
 
-  /// ✅ **Check if Student has Already Marked Attendance for a Class**
   Future<bool> checkStudentAttendanceForClass(String attendanceId) async {
     String studentId = FirebaseAuth.instance.currentUser!.uid;
 
@@ -216,8 +195,6 @@ class StudentClassDetailsController extends GetxController {
     return attendanceDoc.exists;
   }
 
-
-  /// 📌 Format Firestore Timestamp to Readable Date
   String formatDate(dynamic timestamp) {
     if (timestamp is Timestamp) {
       DateTime date = timestamp.toDate();
