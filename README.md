@@ -110,9 +110,9 @@ This project is **MIT Licensed**. See the [LICENSE](LICENSE) file for details.
 
 ## 📬 Contact
 For queries and support:
-- **Email:** your-email@example.com
-- **GitHub:** [yourusername](https://github.com/yashkusumkar02)
-- **LinkedIn:** [Your Profile](https://linkedin.com/in/suyash-kusumkar)
+- **Email:** kusumkarsuyash1234@gmail.com
+- **GitHub:** [yashkusumkar02](https://github.com/yashkusumkar02)
+- **LinkedIn:** [suyash-kusumkar](https://linkedin.com/in/suyash-kusumkar)
 
 ---
 
