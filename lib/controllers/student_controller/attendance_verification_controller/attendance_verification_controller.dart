@@ -248,12 +248,13 @@ class AttendanceVerificationController extends GetxController {
       return false;
     }
   }
+
+
   double calculateFaceSimilarity(Face face1, Face face2) {
-    // ✅ Extract Landmark Points (Eyes, Nose, Mouth, Jaw, etc.)
     Map<FaceContourType, FaceContour?> contours1 = face1.contours;
     Map<FaceContourType, FaceContour?> contours2 = face2.contours;
 
-    if (contours1.isEmpty || contours2.isEmpty) return 0.0;
+    if (contours1.isEmpty || contours2.isEmpty) return 0.0;  // ✅ Ensure return
 
     double sumOfDifferences = 0.0;
     int totalPoints = 0;
@@ -271,7 +272,11 @@ class AttendanceVerificationController extends GetxController {
         }
       }
     }
-    }
+
+    // ✅ Ensure there are valid points to avoid division by zero
+    return totalPoints > 0 ? 1 - (sumOfDifferences / (totalPoints * 100)) : 0.0;
+  }
+
 
   /// ✅ **Extract Face Features for Comparison**
   List<double> extractFaceFeatures(Face face) {
@@ -310,16 +315,6 @@ class AttendanceVerificationController extends GetxController {
     File file = File(filePath);
     await FirebaseStorage.instance.refFromURL(imageUrl).writeToFile(file);
     return file;
-  }
-
-  /// ✅ **Compare Face Features**
-  double calculateFaceSimilarity(Face face1, Face face2) {
-    Rect box1 = face1.boundingBox;
-    Rect box2 = face2.boundingBox;
-
-    double intersection = (box1.overlaps(box2)) ? 1.0 : 0.0; // 1 if they overlap, 0 if not
-
-    return intersection; // 1 = Match, 0 = No Match
   }
 
 
