@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:get/get.dart';
 import 'package:camera/camera.dart';
+import 'package:google_ml_kit/google_ml_kit.dart';
 
 class StudentProfilePage extends StatefulWidget {
   final String studentId;
@@ -24,7 +25,6 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
   void initState() {
     super.initState();
 
-    /// 🛑 Ensure studentId is valid before proceeding
     if (widget.studentId.isEmpty) {
       Future.delayed(Duration.zero, () {
         Get.snackbar("Error", "Invalid Student ID. Returning to login.");
@@ -33,10 +33,28 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
       return;
     }
 
-    _fetchProfileImage(); /// ✅ Proceed to fetch profile image
+    _checkStudentExists();
   }
 
-  // ✅ Fetch Student's Profile Image from Firestore
+  Future<void> _checkStudentExists() async {
+    try {
+      DocumentSnapshot studentDoc = await FirebaseFirestore.instance
+          .collection("students")
+          .doc(widget.studentId)
+          .get();
+
+      if (!studentDoc.exists) {
+        Get.snackbar("Error", "Student record not found. Returning to login.");
+        Get.offNamed(AppRoutes.roleSelection);
+      } else {
+        _fetchProfileImage();
+      }
+    } catch (e) {
+      Get.snackbar("Error", "Database error: $e");
+      Get.offNamed(AppRoutes.roleSelection);
+    }
+  }
+
   Future<void> _fetchProfileImage() async {
     try {
       DocumentSnapshot studentDoc = await FirebaseFirestore.instance
@@ -54,7 +72,6 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
     }
   }
 
-  // ✅ Start Face Scan and Capture Image
   Future<void> _startFaceScan() async {
     final cameras = await availableCameras();
     if (cameras.isEmpty) {
@@ -72,7 +89,6 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
     }
   }
 
-  // ✅ Convert Image to Base64 and Save in Firestore
   Future<void> _convertAndSaveImage(File imageFile) async {
     try {
       if (widget.studentId.isEmpty) {
@@ -98,7 +114,6 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
     }
   }
 
-  // ✅ Submit & Redirect to Student Dashboard
   void _submitAndProceed() {
     if (uploadedImageBase64 != null) {
       Get.offNamed(AppRoutes.studentDashboard,
@@ -145,7 +160,6 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
                   GoogleFonts.poppins(fontSize: 16, color: Colors.black54),
                 ),
                 SizedBox(height: 40),
-
                 Center(
                   child: Column(
                     children: [
@@ -172,18 +186,10 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
                           fit: BoxFit.cover,
                         ),
                       ),
-                      SizedBox(height: 10),
-                      Text(
-                        "Upload Profile Image",
-                        style:
-                        GoogleFonts.poppins(fontSize: 14, color: Colors.grey),
-                      ),
                     ],
                   ),
                 ),
                 SizedBox(height: 40),
-
-                /// ✅ Face Scan Button
                 ElevatedButton(
                   onPressed: _startFaceScan,
                   style: ElevatedButton.styleFrom(
@@ -202,10 +208,8 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
                     ),
                   ),
                 ),
-                SizedBox(height: 20),
-
-                /// ✅ Submit Button (Only if Image is Captured)
-                if (uploadedImageBase64 != null)
+                if (uploadedImageBase64 != null) ...[
+                  SizedBox(height: 20),
                   ElevatedButton(
                     onPressed: _submitAndProceed,
                     style: ElevatedButton.styleFrom(
@@ -224,6 +228,7 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
                       ),
                     ),
                   ),
+                ]
               ],
             ),
           ),

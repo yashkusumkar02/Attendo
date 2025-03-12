@@ -39,48 +39,45 @@ class StudentDashboardController extends GetxController {
   }
 
   // ✅ Fetch Joined Classrooms (Fetch Semester from the Classroom Database)
-  Future<void> fetchJoinedClassrooms() async {
-    try {
-      User? user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
+  void fetchJoinedClassrooms() {
+    User? user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
 
-      QuerySnapshot classQuery = await FirebaseFirestore.instance
-          .collection("students")
-          .doc(user.uid)
-          .collection("joinedClasses")
-          .get();
-
+    FirebaseFirestore.instance
+        .collection("students")
+        .doc(user.uid)
+        .collection("joinedClasses")
+        .snapshots()
+        .listen((QuerySnapshot snapshot) async {
       List<Map<String, dynamic>> joinedClassesList = [];
 
-      for (var doc in classQuery.docs) {
+      for (var doc in snapshot.docs) {
         var classData = doc.data() as Map<String, dynamic>;
         String classId = doc.id;
 
-        // ✅ Fetch classroom details from Firestore
-        DocumentSnapshot classDoc =
-        await FirebaseFirestore.instance.collection("classrooms").doc(classId).get();
+        DocumentSnapshot classDoc = await FirebaseFirestore.instance
+            .collection("classrooms")
+            .doc(classId)
+            .get();
 
         if (classDoc.exists) {
           var classDetails = classDoc.data() as Map<String, dynamic>;
           String teacherId = classDetails["teacherId"] ?? "";
 
-          // ✅ Fetch teacher name from users collection
           String teacherName = await _fetchTeacherName(teacherId);
 
           joinedClassesList.add({
             "classId": classId,
             "className": classDetails["name"] ?? "Unknown Class",
-            "teacher": teacherName, // ✅ Corrected to fetch from `users`
+            "teacher": teacherName,
             "semester": classDetails["semester"] ?? "N/A",
             "year": classDetails["year"] ?? "N/A",
           });
         }
       }
 
-      joinedClassrooms.assignAll(joinedClassesList); // ✅ Assign fetched data
-    } catch (e) {
-      Get.snackbar("Error", "Failed to fetch joined classrooms: $e");
-    }
+      joinedClassrooms.assignAll(joinedClassesList); // ✅ Real-time update!
+    });
   }
 
   // ✅ Fetch Teacher Name from `users` Collection

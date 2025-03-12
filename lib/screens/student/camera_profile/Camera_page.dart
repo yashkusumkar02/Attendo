@@ -3,6 +3,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_ml_kit/google_ml_kit.dart';
+import 'dart:async';
 
 class CameraPage extends StatefulWidget {
   final List<CameraDescription>? cameras;
@@ -17,11 +18,21 @@ class CameraPage extends StatefulWidget {
 class _CameraPageState extends State<CameraPage> {
   CameraController? _cameraController;
   bool isCapturing = false;
-  FaceDetector faceDetector = GoogleMlKit.vision.faceDetector();
+  FaceDetector faceDetector = GoogleMlKit.vision.faceDetector(
+    FaceDetectorOptions(
+      enableClassification: true,
+      enableLandmarks: true,
+      enableContours: true,
+      performanceMode: FaceDetectorMode.accurate,
+    ),
+  );
+  int selectedCameraIndex = 0;
+  bool faceDetected = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsFlutterBinding.ensureInitialized();
     _initializeCamera();
   }
 
@@ -31,13 +42,22 @@ class _CameraPageState extends State<CameraPage> {
         Get.snackbar("Error", "No cameras available");
         return;
       }
-      _cameraController =
-          CameraController(widget.cameras![0], ResolutionPreset.medium);
+      _cameraController = CameraController(
+        widget.cameras![selectedCameraIndex],
+        ResolutionPreset.medium,
+      );
       await _cameraController!.initialize();
       if (!mounted) return;
       setState(() {});
     } catch (e) {
       Get.snackbar("Error", "Camera failed to initialize: $e");
+    }
+  }
+
+  void _switchCamera() {
+    if (widget.cameras!.length > 1) {
+      selectedCameraIndex = (selectedCameraIndex + 1) % widget.cameras!.length;
+      _initializeCamera();
     }
   }
 
@@ -48,9 +68,31 @@ class _CameraPageState extends State<CameraPage> {
     super.dispose();
   }
 
+  Future<void> _detectFaceAndCapture() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
+
+    try {
+      final XFile image = await _cameraController!.takePicture();
+      File imageFile = File(image.path);
+      bool isRealPerson = await _verifyLiveness(imageFile);
+
+      if (isRealPerson) {
+        setState(() {
+          faceDetected = true;
+        });
+        Get.snackbar("Face Detected", "Wait and look forward. Capturing in 5 seconds...");
+        await Future.delayed(Duration(seconds: 5));
+        _captureImage();
+      } else {
+        Get.snackbar("Error", "Liveness detection failed! Please try again.");
+      }
+    } catch (e) {
+      Get.snackbar("Error", "Failed to Capture Image: $e");
+    }
+  }
+
   Future<void> _captureImage() async {
-    if (_cameraController == null || !_cameraController!.value.isInitialized)
-      return;
+    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
 
     setState(() {
       isCapturing = true;
@@ -59,13 +101,7 @@ class _CameraPageState extends State<CameraPage> {
     try {
       final XFile image = await _cameraController!.takePicture();
       File imageFile = File(image.path);
-
-      bool faceDetected = await _detectFace(imageFile);
-      if (faceDetected) {
-        Get.back(result: imageFile);
-      } else {
-        Get.snackbar("Error", "No Face Detected! Try Again.");
-      }
+      Get.back(result: imageFile);
     } catch (e) {
       Get.snackbar("Error", "Failed to Capture Image: $e");
     } finally {
@@ -75,10 +111,35 @@ class _CameraPageState extends State<CameraPage> {
     }
   }
 
-  Future<bool> _detectFace(File imageFile) async {
+  Future<bool> _verifyLiveness(File imageFile) async {
     final inputImage = InputImage.fromFile(imageFile);
     final List<Face> faces = await faceDetector.processImage(inputImage);
-    return faces.isNotEmpty;
+
+    if (faces.isEmpty) {
+      Get.snackbar("Error", "No face detected! Try again.");
+      return false;
+    }
+
+    Face face = faces.first;
+    bool isEyeOpen = (face.leftEyeOpenProbability ?? 0) > 0.2 &&
+        (face.rightEyeOpenProbability ?? 0) > 0.2;
+
+    bool hasHeadMovement = (face.headEulerAngleY ?? 0).abs() > 5 ||
+        (face.headEulerAngleZ ?? 0).abs() > 5;
+
+    bool hasMouthMovement = (face.smilingProbability ?? 0) > 0.3;
+
+    if (!isEyeOpen) {
+      Get.snackbar("Error", "Please blink your eyes for verification.");
+      return false;
+    }
+
+    if (!hasHeadMovement) {
+      Get.snackbar("Error", "Move your head slightly for verification.");
+      return false;
+    }
+
+    return true;
   }
 
   @override
@@ -91,7 +152,6 @@ class _CameraPageState extends State<CameraPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              /// Back Button & Title
               Row(
                 children: [
                   IconButton(
@@ -108,11 +168,13 @@ class _CameraPageState extends State<CameraPage> {
                     ),
                   ),
                   Spacer(),
+                  IconButton(
+                    icon: Icon(Icons.switch_camera, size: 30, color: Colors.black),
+                    onPressed: _switchCamera,
+                  ),
                 ],
               ),
               SizedBox(height: 20),
-
-              /// Camera Preview Box
               Center(
                 child: Container(
                   height: 600,
@@ -121,8 +183,7 @@ class _CameraPageState extends State<CameraPage> {
                     color: Colors.black,
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: _cameraController != null &&
-                      _cameraController!.value.isInitialized
+                  child: _cameraController != null && _cameraController!.value.isInitialized
                       ? ClipRRect(
                     borderRadius: BorderRadius.circular(20),
                     child: CameraPreview(_cameraController!),
@@ -132,15 +193,12 @@ class _CameraPageState extends State<CameraPage> {
                   ),
                 ),
               ),
-
               SizedBox(height: 50),
-
-              /// Scan Face Button
               SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
-                  onPressed: isCapturing ? null : _captureImage,
+                  onPressed: _detectFaceAndCapture,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue,
                     shape: RoundedRectangleBorder(

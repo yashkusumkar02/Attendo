@@ -96,18 +96,18 @@ class AttendanceVerificationScreen extends StatelessWidget {
               children: [
                 // Scan Face Button
                 Obx(() => ElevatedButton.icon(
-                  onPressed: controller.scanFace,
+                  onPressed: controller.scanFace, // ✅ Call scanFace function
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: controller.faceScanned.value ? Colors.green : Colors.blue,
-                    minimumSize: Size(double.infinity, 50),
+                    backgroundColor: controller.faceScanned.value ? Colors.green : Colors.blue, // ✅ Change color if verified
+                    minimumSize: Size(double.infinity, 50), // ✅ Full-width button
                   ),
-                  icon: Icon(Icons.face, color: Colors.white),
+                  icon: Icon(Icons.face, color: Colors.white), // ✅ Face icon
                   label: Text(
-                    controller.faceScanned.value ? "Face Verified ✅" : "Scan Face",
+                    controller.faceScanned.value ? "Face Verified ✅" : "Scan Face", // ✅ Change text dynamically
                     style: GoogleFonts.poppins(fontSize: 16, color: Colors.white),
                   ),
                 )),
-                SizedBox(height: 15),
+                SizedBox(height: 15), // ✅ Adds spacing after button
 
                 // Class Code Input
                 TextField(

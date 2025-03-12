@@ -13,7 +13,7 @@ class SplashScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Delayed navigation to the next screen (after 3 seconds)
-    Future.delayed(Duration(seconds: 5), () {
+    Future.delayed(Duration(seconds: 10), () {
       _controller.navigateToNextScreen(); // No error now
     });
 

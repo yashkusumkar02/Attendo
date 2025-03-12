@@ -1,3 +1,4 @@
+import 'package:attendo/routes/app_routes.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -98,7 +99,7 @@ class ClassroomDetaillsScreen extends StatelessWidget {
       alignment: WrapAlignment.center, // ✅ Center align buttons
       children: [
         _buildActionButton(Icons.people, "View Students", Colors.green, () {
-          Get.toNamed('/student-list'); // ✅ Navigate to student list
+          Get.toNamed(AppRoutes.studentList);// ✅ Navigate to student list
         }),
         _buildActionButton(Icons.add, "Create Attendance", Colors.blue, () {
           Get.toNamed('/classroom-details', arguments: {

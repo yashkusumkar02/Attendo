@@ -16,6 +16,7 @@ import 'package:attendo/screens/teacher/create_classroom_screen/create_classroom
 import 'package:attendo/screens/teacher/login/teacherlogin.dart';
 import 'package:attendo/screens/teacher/signup/teachersignup.dart';
 import 'package:attendo/screens/teacher/student_attendance_details_screen/student_attendance_details_screen.dart';
+import 'package:attendo/screens/teacher/student_list_screen/student_list_screen.dart';
 import 'package:attendo/screens/teacher/teacher_details/teacher_details.dart';
 import 'package:attendo/screens/teacher/teacher_home_screen/teacher_home_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -24,13 +25,21 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-  await GeolocatorPlatform.instance.isLocationServiceEnabled();
+
+  // ✅ Remove setPersistence for Mobile (ONLY use for Web)
+  if (kIsWeb) {
+    await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
+  }
+
   runApp(MyApp());
 }
+
+
 
 class MyApp extends StatelessWidget {
   @override
@@ -64,7 +73,7 @@ class MyApp extends StatelessWidget {
             return StudentProfilePage(studentId: args["studentId"]);
           },
         ),
-
+        GetPage(name: AppRoutes.studentList, page: () => StudentListScreen()),
         // Teacher Area
         GetPage(name: AppRoutes.teacherDashboard, page: () => TeacherDashboard()),
         GetPage(name: AppRoutes.createClassroom, page: () => CreateClassroomScreen()),
@@ -94,6 +103,7 @@ class MyApp extends StatelessWidget {
 }
 
 // ✅ Auto Redirect Based on Login Status
+// ✅ Auto Redirect Based on Login Status
 class AuthCheck extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -106,53 +116,77 @@ class AuthCheck extends StatelessWidget {
             body: Center(child: CircularProgressIndicator()),
           );
         }
-        if (snapshot.hasData && snapshot.data != null) {
-          return FutureBuilder(
-            future: getUserRole(snapshot.data!.uid),
-            builder: (context, AsyncSnapshot<String?> roleSnapshot) {
+
+        User? user = FirebaseAuth.instance.currentUser;
+
+        if (user != null) {
+          return FutureBuilder<String?>(
+            future: getUserRole(user.uid), // ✅ Get role from Firestore
+            builder: (context, roleSnapshot) {
               if (roleSnapshot.connectionState == ConnectionState.waiting) {
-                return Scaffold(
-                  backgroundColor: Colors.white,
-                  body: Center(child: CircularProgressIndicator()),
-                );
+                return Scaffold(body: Center(child: CircularProgressIndicator()));
               }
               if (roleSnapshot.hasError || roleSnapshot.data == null) {
-                return RoleSelectionScreen(); // Redirect to role selection if error
+                Get.snackbar("Error", "No role found! Please contact admin.", snackPosition: SnackPosition.BOTTOM);
+                return RoleSelectionScreen(); // ❌ Redirect only after showing error
               }
               if (roleSnapshot.data == "teacher") {
-                return TeacherDashboard(); // Redirect to Teacher Dashboard
+                return TeacherDashboard(); // ✅ Redirect to teacher dashboard
               } else {
-                return StudentDashboard(); // Redirect to Student Dashboard
+                return StudentDashboard(); // ✅ Redirect to student dashboard
               }
             },
           );
         }
-        return SplashScreen(); // Default screen (login/signup)
+
+        return RoleSelectionScreen(); // ❌ Default to role selection if not logged in
       },
     );
   }
 }
 
+
+
 // ✅ Fetch User Role from Firestore
-// ✅ Fetch User Role from Firestore based on UID
+// ✅ Improved User Role Fetching
 Future<String?> getUserRole(String uid) async {
   try {
-    // 🔍 Check if the user exists in the "students" collection
+    print("🔍 Checking role for user: $uid");
+
+    // 🔎 Check if user exists in "students" collection
     var studentDoc = await FirebaseFirestore.instance.collection("students").doc(uid).get();
-    if (studentDoc.exists) {
-      return "student"; // ✅ User is a student
+    if (studentDoc.exists && studentDoc.data()?["role"] == "student") {
+      print("✅ User is a STUDENT");
+      return "student";
     }
 
-    // 🔍 Check if the user exists in the "teachers" collection
+    // 🔎 Check if user exists in "teachers" collection
     var teacherDoc = await FirebaseFirestore.instance.collection("teachers").doc(uid).get();
-    if (teacherDoc.exists) {
-      return "teacher"; // ✅ User is a teacher
+    if (teacherDoc.exists && teacherDoc.data()?["role"] == "teacher") {
+      print("✅ User is a TEACHER");
+      return "teacher";
     }
 
-    return null; // ❌ No role found, user is not registered properly
-  } catch (e) {
-    print("Error fetching role: $e");
+    print("❌ No role found in Firestore!");
     return null;
+  } catch (e) {
+    print("🔥 ERROR Fetching Role: $e");
+    return null;
+  }
+}
+
+// ✅ Save user role during signup
+Future<void> saveUserRole(String uid, String email, String name, String role) async {
+  try {
+    await FirebaseFirestore.instance.collection(role == "teacher" ? "teachers" : "students").doc(uid).set({
+      "name": name,
+      "email": email,
+      "role": role, // ✅ Ensure role is stored correctly
+      "createdAt": FieldValue.serverTimestamp(),
+    });
+    print("✅ User role saved successfully!");
+  } catch (e) {
+    print("❌ Error saving user role: $e");
   }
 }
 

@@ -131,17 +131,15 @@ class StudentClassDetailsScreen extends StatelessWidget {
           style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
         )
             : SizedBox(
-          width: 120,
+          width: 140,
           height: 40,
           child: ElevatedButton(
-            onPressed: controller.isAttendanceMarked.value
-                ? null
-                : () {
+            onPressed: () {
               final classController = Get.find<StudentClassDetailsController>();
-              classController.navigateToAttendanceVerification();
+              classController.navigateToAttendanceVerification(); // ✅ Redirect to verification
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: controller.isAttendanceMarked.value ? Colors.grey : Colors.blue,
+              backgroundColor: Colors.blue,
             ),
             child: Text("Take Attendance", style: TextStyle(fontSize: 14, color: Colors.white)),
           ),
@@ -149,6 +147,7 @@ class StudentClassDetailsScreen extends StatelessWidget {
       ),
     );
   }
+
 
   /// ✅ PREVIOUS CLASS CARD
   Widget _previousClassTile(Map<String, dynamic> prevClass) {

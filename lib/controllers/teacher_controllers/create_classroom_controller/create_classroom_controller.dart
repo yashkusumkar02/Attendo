@@ -1,88 +1,122 @@
-import 'package:attendo/controllers/teacher_controllers/teacher_home_controller/teacher_home_controller.dart';
-import 'package:attendo/models/classroom_model.dart';
-import 'package:attendo/routes/app_routes.dart';
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'dart:math';
+import 'package:geolocator/geolocator.dart';
 
-class CreateClassroomController extends GetxController {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+class CreateClassController extends GetxController {
+  TextEditingController classCodeController = TextEditingController();
   final FirebaseFirestore _db = FirebaseFirestore.instance;
+  String classId;
 
-  var name = ''.obs;
-  var selectedCollege = ''.obs;
-  var branch = ''.obs;
-  var year = ''.obs;
-  var semester = ''.obs;
-  var classId = ''.obs;
+  RxString selectedClassTiming = "Morning".obs;
+  RxString selectedStartTime = "8:30 AM".obs;
+  RxString selectedEndTime = "9:30 AM".obs;
 
-  var collegeList = <String>[].obs; // ✅ List to store colleges
+  RxString teacherLocationText = "Location not fetched".obs; // ✅ Show live location text
+  Position? teacherLocation;
+
+  CreateClassController({required this.classId});
 
   @override
   void onInit() {
     super.onInit();
-    _fetchColleges(); // ✅ Fetch all colleges from database
-    _generateClassId(); // ✅ Generate unique class ID
+    generateClassCode();
   }
 
-  // ✅ Fetch List of Colleges from Firestore
-  Future<void> _fetchColleges() async {
-    try {
-      var snapshot = await _db.collection("colleges").get();
-      collegeList.value =
-          snapshot.docs.map((doc) => doc["name"] as String).toList();
-    } catch (e) {
-      Get.snackbar("Error", "Failed to fetch colleges: $e",
-          snackPosition: SnackPosition.BOTTOM);
-    }
+  // ✅ Generate a Unique Class Code
+  void generateClassCode() {
+    String generatedCode = (100000 + Random().nextInt(900000)).toString();
+    classCodeController.text = generatedCode;
   }
 
-  // ✅ Generate Unique Class ID
-  void _generateClassId() {
-    String generatedId = Random().nextInt(1000000).toString().padLeft(6, '0');
-    classId.value = generatedId;
-  }
+  // ✅ Fetch Teacher Location
+  Future<void> getTeacherLocation() async {
+    bool serviceEnabled;
+    LocationPermission permission;
 
-  Future<void> createClassroom() async {
-    if (name.value.isEmpty || selectedCollege.value.isEmpty ||
-        branch.value.isEmpty || year.value.isEmpty || semester.value.isEmpty) {
-      Get.snackbar("Error", "All fields are required!",
-          snackPosition: SnackPosition.BOTTOM);
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      Get.snackbar("Error", "Location services are disabled!", snackPosition: SnackPosition.BOTTOM);
       return;
     }
 
-    String teacherId = _auth.currentUser!.uid;
-    String classIdGenerated = Random().nextInt(1000000).toString().padLeft(
-        6, '0');
-
-    try {
-      await _db.collection("classrooms").doc(classIdGenerated).set({
-        "teacherId": teacherId,
-        "name": name.value,
-        "college": selectedCollege.value,
-        "branch": branch.value,
-        "semester": semester.value, // ✅ Store as String
-        "year": year.value, // ✅ Store as String
-        "classId": classIdGenerated,
-        "createdAt": FieldValue.serverTimestamp(),
-      });
-
-      Get.snackbar("Success", "Classroom Created Successfully!",
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.green,
-          colorText: Colors.white);
-
-      Get.offAllNamed(
-          AppRoutes.teacherDashboard); // ✅ Redirect to Teacher Dashboard
-
-    } catch (e) {
-      Get.snackbar("Error", "Failed to create classroom: $e",
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.redAccent,
-          colorText: Colors.white);
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        Get.snackbar("Error", "Location permission denied!", snackPosition: SnackPosition.BOTTOM);
+        return;
+      }
     }
+
+    if (permission == LocationPermission.deniedForever) {
+      Get.snackbar("Error", "Location permission permanently denied!", snackPosition: SnackPosition.BOTTOM);
+      return;
+    }
+
+    teacherLocation = await Geolocator.getCurrentPosition(locationSettings: LocationSettings(accuracy: LocationAccuracy.high));
+    teacherLocationText.value = "Lat: ${teacherLocation!.latitude}, Lng: ${teacherLocation!.longitude}"; // ✅ Update location text
+
+    Get.snackbar("Success", "Location fetched successfully!", snackPosition: SnackPosition.BOTTOM);
+  }
+
+  // ✅ Create Attendance and Save Under the Correct Classroom
+  void createAttendance() async {
+    if (teacherLocation == null) {
+      Get.snackbar("Error", "Please fetch your location before creating attendance!", snackPosition: SnackPosition.BOTTOM);
+      return;
+    }
+
+    // ✅ Generate Unique Attendance ID
+    String attendanceId = "${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(999999)}-$classId";
+
+    // ✅ Parse Start & End Time
+    DateTime now = DateTime.now();
+    DateTime startDateTime = _parseTime(selectedStartTime.value, now);
+    DateTime endDateTime = _parseTime(selectedEndTime.value, now);
+
+    if (now.isAfter(endDateTime)) {
+      Get.snackbar("Error", "The selected class time has already passed!", snackPosition: SnackPosition.BOTTOM);
+      return;
+    }
+
+    // ✅ Save to Firestore under the current `classId`
+    DocumentReference attendanceRef = _db.collection("classrooms").doc(classId).collection("attendance").doc(attendanceId);
+
+    await attendanceRef.set({
+      "attendanceId": attendanceId,
+      "classId": classId,
+      "classTiming": selectedClassTiming.value, // ✅ Morning/Afternoon/Evening
+      "startTime": selectedStartTime.value,
+      "endTime": selectedEndTime.value,
+      "classCode": classCodeController.text, // ✅ Auto-generated Code
+      "status": "live",
+      "teacherLocation": {
+        "latitude": teacherLocation!.latitude,
+        "longitude": teacherLocation!.longitude,
+      },
+      "createdAt": FieldValue.serverTimestamp(),
+    });
+
+    // ✅ Navigate back to Classroom Details
+    Get.snackbar("Success", "Attendance Created Successfully!",
+        snackPosition: SnackPosition.BOTTOM, backgroundColor: Colors.green, colorText: Colors.white);
+
+    Get.offNamed('/classroom-details', arguments: {"classId": classId});
+  }
+
+  // ✅ Parse Time Function to Convert String to DateTime
+  DateTime _parseTime(String time, DateTime now) {
+    List<String> parts = time.split(' ');
+    List<String> timeParts = parts[0].split(':');
+    int hour = int.parse(timeParts[0]);
+    int minute = int.parse(timeParts[1]);
+    if (parts[1].toLowerCase() == "pm" && hour != 12) {
+      hour += 12;
+    } else if (parts[1].toLowerCase() == "am" && hour == 12) {
+      hour = 0;
+    }
+    return DateTime(now.year, now.month, now.day, hour, minute);
   }
 }
-

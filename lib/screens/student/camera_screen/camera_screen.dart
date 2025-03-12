@@ -53,6 +53,8 @@ class _CameraScreenState extends State<CameraScreen> {
     Get.back(result: imagePath);
   }
 
+
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(

@@ -1,46 +1,115 @@
-import 'package:attendo/controllers/teacher_controllers/student_list_controller/student_list_controller.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
 
 class StudentAttendanceController extends GetxController {
-  final StudentListController studentListController = Get.find();
-  late int studentId;
-  var studentDetails = {}.obs;
+  var studentDetails = <String, dynamic>{}.obs;
+  var isLoading = false.obs;
+
+  String? studentId;
+  String? classId;
 
   @override
   void onInit() {
     super.onInit();
-    studentId = Get.arguments as int;
+    var args = Get.arguments;
+    if (args != null) {
+      classId = args["classId"];
+      studentId = FirebaseAuth.instance.currentUser?.uid;
 
-    studentDetails.value = studentListController.students.firstWhere(
-          (student) => student["id"] == studentId,
-      orElse: () {
-        print("⚠️ Error: Student with ID $studentId not found!");
-        return {"id": studentId, "name": "Unknown Student", "details": "No details available", "status": "Absent"};
-      },
-    );
+      if (studentId != null && classId != null) {
+        fetchStudentAttendance();
+      }
+    }
   }
 
-  // Function to Mark Student as Present
-  void markPresent() {
-    studentListController.updateStudentStatus(studentId, "Present");
+  Future<void> fetchStudentAttendance() async {
+    try {
+      if (classId == null || studentId == null) {
+        Get.snackbar("Error", "Missing class or student ID");
+        return;
+      }
 
-    // ✅ Refresh Student List Data
-    studentListController.students.refresh();
+      isLoading.value = true;
 
-    // ✅ Update local student details
-    studentDetails.value = studentListController.students.firstWhere((student) => student["id"] == studentId);
-    update(); // ✅ Ensures UI updates
+      // ✅ Fetch student's attendance data
+      DocumentSnapshot studentAttendanceDoc = await FirebaseFirestore.instance
+          .collection("classrooms")
+          .doc(classId)
+          .collection("attendance")
+          .doc("students") // Assuming students are stored under "students"
+          .collection("studentList")
+          .doc(studentId)
+          .get();
+
+      if (studentAttendanceDoc.exists) {
+        var data = studentAttendanceDoc.data() as Map<String, dynamic>;
+        studentDetails.value = {
+          "name": data["name"] ?? "Unknown Student",
+          "status": data["status"] ?? "Absent",
+          "attended_classes": data["attended_classes"] ?? 0,
+          "total_classes": data["total_classes"] ?? 0,
+          "attendance_percentage": calculateAttendancePercentage(
+              data["attended_classes"] ?? 0, data["total_classes"] ?? 0),
+        };
+      } else {
+        Get.snackbar("Error", "Attendance record not found");
+      }
+    } catch (e) {
+      Get.snackbar("Error", "Failed to fetch attendance: $e");
+    } finally {
+      isLoading.value = false;
+    }
   }
 
-  // Function to Mark Student as Absent
-  void markAbsent() {
-    studentListController.updateStudentStatus(studentId, "Absent");
+  double calculateAttendancePercentage(int attended, int total) {
+    if (total == 0) return 0.0;
+    return ((attended / total) * 100).toDouble();
+  }
 
-    // ✅ Refresh Student List Data
-    studentListController.students.refresh();
+  // ✅ Mark Present
+  Future<void> markPresent() async {
+    await _updateAttendance(status: "Present", increase: true);
+  }
 
-    // ✅ Update local student details
-    studentDetails.value = studentListController.students.firstWhere((student) => student["id"] == studentId);
-    update(); // ✅ Ensures UI updates
+  // ✅ Mark Absent
+  Future<void> markAbsent() async {
+    await _updateAttendance(status: "Absent", increase: false);
+  }
+
+  Future<void> _updateAttendance({required String status, required bool increase}) async {
+    if (classId == null || studentId == null) return;
+
+    try {
+      DocumentReference studentRef = FirebaseFirestore.instance
+          .collection("classrooms")
+          .doc(classId)
+          .collection("attendance")
+          .doc("students")
+          .collection("studentList")
+          .doc(studentId);
+
+      DocumentSnapshot studentDoc = await studentRef.get();
+
+      if (!studentDoc.exists) {
+        Get.snackbar("Error", "Student record not found");
+        return;
+      }
+
+      int attended = studentDoc["attended_classes"] ?? 0;
+      int total = studentDoc["total_classes"] ?? 0;
+
+      if (increase) attended++;
+
+      await studentRef.update({
+        "status": status,
+        "attended_classes": attended,
+        "total_classes": total + 1, // Increase total classes count
+      });
+
+      await fetchStudentAttendance(); // ✅ Refresh Data
+    } catch (e) {
+      Get.snackbar("Error", "Failed to update attendance: $e");
+    }
   }
 }

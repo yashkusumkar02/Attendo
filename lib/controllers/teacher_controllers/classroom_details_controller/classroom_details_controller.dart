@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
+import 'package:intl/intl.dart';
 
 class ClassroomDetailsController extends GetxController {
   var isLoading = false.obs;
@@ -14,10 +15,10 @@ class ClassroomDetailsController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    fetchAttendance(); // Load attendance when the screen opens
+    fetchAttendance(); // ✅ Load attendance when the screen opens
   }
 
-  // ✅ Fetch Attendance Only for this Classroom
+  // ✅ Fetch Attendance and Sort into Live & Previous Classes
   void fetchAttendance() {
     isLoading(true);
 
@@ -27,42 +28,77 @@ class ClassroomDetailsController extends GetxController {
         .collection("attendance")
         .orderBy("createdAt", descending: true)
         .snapshots()
-        .listen((snapshot) {
-      liveClasses.value = snapshot.docs
-          .where((doc) => doc["status"] == "live")
-          .map((doc) {
-        Map<String, dynamic> data = doc.data();
-        return {
-          "attendanceId": data["attendanceId"] ?? "",
-          "title": (data["classTiming"] ?? "Unnamed Class").toString(),  // ✅ Ensure String
-          "classTiming": (data["classTiming"] ?? "Unknown").toString(),  // ✅ Ensure String
-          "startTime": (data["startTime"] ?? "N/A").toString(),          // ✅ Ensure String
-          "endTime": (data["endTime"] ?? "N/A").toString(),              // ✅ Ensure String
-          "classCode": (data["classCode"] ?? "N/A").toString(),          // ✅ Ensure String
-          "location": (data["teacherLocation"] != null)
-              ? "Lat: ${data["teacherLocation"]["latitude"]}, Lng: ${data["teacherLocation"]["longitude"]}"
-              : "No Location Data",  // ✅ Ensure String
-        };
-      }).toList();
+        .listen((snapshot) async {
+      List<Map<String, dynamic>> updatedLiveClasses = [];
+      List<Map<String, dynamic>> updatedPreviousClasses = [];
 
-      previousClasses.value = snapshot.docs
-          .where((doc) => doc["status"] == "completed")
-          .map((doc) {
-        Map<String, dynamic> data = doc.data();
-        return {
-          "attendanceId": data["attendanceId"] ?? "",
-          "title": (data["classTiming"] ?? "Unnamed Class").toString(),
-          "classTiming": (data["classTiming"] ?? "Unknown").toString(),
-          "startTime": (data["startTime"] ?? "N/A").toString(),
-          "endTime": (data["endTime"] ?? "N/A").toString(),
-          "classCode": (data["classCode"] ?? "N/A").toString(),
-          "location": (data["teacherLocation"] != null)
-              ? "Lat: ${data["teacherLocation"]["latitude"]}, Lng: ${data["teacherLocation"]["longitude"]}"
-              : "No Location Data",
-        };
-      }).toList();
+      DateTime now = DateTime.now(); // ✅ Get current timestamp
 
-      update(); // ✅ Ensure UI updates in real-time
+      for (var doc in snapshot.docs) {
+        Map<String, dynamic> data = doc.data();
+        String attendanceId = doc.id;
+        String status = data["status"] ?? "live"; // Default to live
+        String endTimeStr = data["endTime"] ?? "11:59 PM"; // Default fallback
+
+        // ✅ Extract class created date from Firestore
+        DateTime classDate = (data["createdAt"] as Timestamp).toDate();
+
+        // ✅ Combine class date with parsed end time
+        DateTime fullEndTime;
+        try {
+          DateTime parsedEndTime = DateFormat("h:mm a").parse(endTimeStr);
+          fullEndTime = DateTime(classDate.year, classDate.month, classDate.day,
+              parsedEndTime.hour, parsedEndTime.minute);
+        } catch (e) {
+          print("⚠️ Error parsing endTime: $e");
+          continue;
+        }
+
+        print("🕒 Now: $now | ⏳ Full End Time: $fullEndTime | Status: $status");
+
+        // ✅ Ensure new classes are set as "live" by default
+        if (status == "completed" && now.isBefore(fullEndTime)) {
+          print("🟡 Attendance $attendanceId should be 'live', correcting...");
+          await _db
+              .collection("classrooms")
+              .doc(classId)
+              .collection("attendance")
+              .doc(attendanceId)
+              .update({"status": "live"});
+          status = "live"; // ✅ Locally update status
+        }
+
+        // ✅ Separate into "live" and "completed" lists
+        if (status == "live") {
+          updatedLiveClasses.add({
+            "attendanceId": attendanceId,
+            "title": data["classTiming"] ?? "Live Class",
+            "startTime": data["startTime"] ?? "N/A",
+            "endTime": data["endTime"] ?? "N/A",
+            "classCode": data["classCode"] ?? "N/A",
+            "location": (data["teacherLocation"] != null)
+                ? "Lat: ${data["teacherLocation"]["latitude"]}, Lng: ${data["teacherLocation"]["longitude"]}"
+                : "No Location Data",
+          });
+        } else {
+          updatedPreviousClasses.add({
+            "attendanceId": attendanceId,
+            "title": data["classTiming"] ?? "Previous Class",
+            "startTime": data["startTime"] ?? "N/A",
+            "endTime": data["endTime"] ?? "N/A",
+            "classCode": data["classCode"] ?? "N/A",
+            "date": DateFormat("dd MMMM yyyy").format(classDate),
+            "location": (data["teacherLocation"] != null)
+                ? "Lat: ${data["teacherLocation"]["latitude"]}, Lng: ${data["teacherLocation"]["longitude"]}"
+                : "No Location Data",
+          });
+        }
+      }
+
+      // ✅ Update UI with filtered lists
+      liveClasses.value = updatedLiveClasses;
+      previousClasses.value = updatedPreviousClasses;
+
       isLoading(false);
     });
   }

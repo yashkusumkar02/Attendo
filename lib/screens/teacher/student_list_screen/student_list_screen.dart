@@ -8,56 +8,70 @@ class StudentListScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(20.0),
-      child: Column(
-        children: [
-          // Search Bar
-          TextField(
-            controller: controller.searchController,
-            decoration: InputDecoration(
-              hintText: "Search student by name...",
-              hintStyle: GoogleFonts.poppins(fontSize: 16, color: Colors.grey),
-              filled: true,
-              fillColor: Colors.grey.shade100,
-              prefixIcon: Icon(Icons.search, color: Colors.blue),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide.none,
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back, color: Colors.black),
+          onPressed: () => Get.back(),
+        ),
+        title: Text(
+          "Student List",
+          style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black),
+        ),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          children: [
+            // Search Bar
+            TextField(
+              controller: controller.searchController,
+              decoration: InputDecoration(
+                hintText: "Search student by name...",
+                hintStyle: GoogleFonts.poppins(fontSize: 16, color: Colors.grey),
+                filled: true,
+                fillColor: Colors.grey.shade100,
+                prefixIcon: Icon(Icons.search, color: Colors.blue),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
               ),
+              style: GoogleFonts.poppins(fontSize: 16),
             ),
-            style: GoogleFonts.poppins(fontSize: 16),
-          ),
-          SizedBox(height: 20),
+            SizedBox(height: 20),
 
-          // Student List (Filtered dynamically)
-          Expanded(
-            child: Obx(() => controller.filteredStudents.isEmpty
-                ? Center(
-                child: Text("No Students Found", style: GoogleFonts.poppins(fontSize: 16)))
-                : ListView.builder(
-              itemCount: controller.filteredStudents.length,
-              itemBuilder: (context, index) {
-                var student = controller.filteredStudents[index];
-                return StudentTile(
-                  studentId: student["id"],
-                  studentName: student["name"],
-                  studentDetails: student["details"],
-                  status: student["status"],
-                  onTap: () => controller.goToStudentDetails(student["id"]),
-                );
-              },
-            )),
-          ),
-        ],
+            // Student List (Fetched from Firestore)
+            Expanded(
+              child: Obx(() => controller.filteredStudents.isEmpty
+                  ? Center(
+                  child: Text("No Students Found", style: GoogleFonts.poppins(fontSize: 16)))
+                  : ListView.builder(
+                itemCount: controller.filteredStudents.length,
+                itemBuilder: (context, index) {
+                  var student = controller.filteredStudents[index];
+                  return StudentTile(
+                    studentId: student["id"].toString(),  // ✅ Convert int to String
+                    studentName: student["name"],
+                    studentDetails: student["details"],
+                    status: student["status"],
+                    onTap: () => controller.goToStudentDetails(student["id"].toString()),  // ✅ Convert here too
+                  );
+                },
+              )),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-// Student List Tile
+// ✅ Student List Tile Widget
 class StudentTile extends StatelessWidget {
-  final int studentId;
+  final String studentId;
   final String studentName;
   final String studentDetails;
   final String status;

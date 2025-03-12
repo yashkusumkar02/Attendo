@@ -1,3 +1,4 @@
+import 'package:attendo/routes/app_routes.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
@@ -12,6 +13,8 @@ class StudentClassDetailsController extends GetxController {
   var liveClasses = <Map<String, dynamic>>[].obs;
   var previousClasses = <Map<String, dynamic>>[].obs;
   var studentsList = <Map<String, dynamic>>[].obs;
+  var endTime = "".obs;  // ✅ Declare this missing variable
+
 
   // ✅ Missing variables added
   var isAttendanceMarked = false.obs;
@@ -26,9 +29,11 @@ class StudentClassDetailsController extends GetxController {
     if (args != null) {
       classId.value = args["classId"];
       className.value = args["className"];
+
       fetchClassDetails();
       fetchAttendanceRecords();
-      fetchStudentsList(); // ✅ Fetch students separately
+      fetchStudentsList();
+      checkStudentAttendance(); // ✅ Automatically check attendance
     }
   }
 
@@ -51,32 +56,101 @@ class StudentClassDetailsController extends GetxController {
       String classId = classQuery.docs.first.id;
       String className = classData["name"];
 
+      print("📌 DEBUG: Navigating to Attendance Verification for Class ID: $classId, Class Name: $className");
+
       Get.toNamed('/attendance-verification', arguments: {
         "classId": classId,
         "className": className,
       });
     } catch (e) {
+      print("❌ DEBUG: Failed to Navigate to Attendance Verification - $e");
       Get.snackbar("Error", "Failed to fetch class details.");
     }
   }
-
   Future<void> checkStudentAttendance() async {
     String studentId = FirebaseAuth.instance.currentUser!.uid;
 
-    DocumentSnapshot attendanceDoc = await FirebaseFirestore.instance
+    // ✅ Step 1: Fetch only the latest "live" attendance session
+    QuerySnapshot attendanceSnapshot = await FirebaseFirestore.instance
         .collection("classrooms")
         .doc(classId.value)
         .collection("attendance")
-        .doc(correctClassCode.value)
+        .where("status", isEqualTo: "live") // ✅ Only check live attendance
+        .orderBy("createdAt", descending: true)
+        .limit(1)
+        .get();
+
+    if (attendanceSnapshot.docs.isEmpty) {
+      print("❌ DEBUG: No live attendance session found.");
+      isAttendanceMarked.value = false;
+      return;
+    }
+
+    // ✅ Step 2: Get the attendance ID of the latest live session
+    String latestAttendanceId = attendanceSnapshot.docs.first.id;
+    print("📌 DEBUG: Checking attendance in Attendance ID: $latestAttendanceId");
+
+    // ✅ Step 3: Check if student exists in that attendance session
+    DocumentSnapshot studentAttendance = await FirebaseFirestore.instance
+        .collection("classrooms")
+        .doc(classId.value)
+        .collection("attendance")
+        .doc(latestAttendanceId)
         .collection("students")
         .doc(studentId)
         .get();
 
-    if (attendanceDoc.exists) {
-      isAttendanceMarked.value = true; // ✅ Attendance already marked
+    if (studentAttendance.exists) {
+      isAttendanceMarked.value = true;
+      print("✅ DEBUG: Attendance found for Student ID: $studentId in Attendance ID: $latestAttendanceId");
+    } else {
+      isAttendanceMarked.value = false;
+      print("❌ DEBUG: No attendance record found for Student ID: $studentId in latest live session.");
     }
   }
 
+  Future<void> markAttendance() async {
+    String studentId = FirebaseAuth.instance.currentUser!.uid;
+
+    QuerySnapshot attendanceSnapshot = await FirebaseFirestore.instance
+        .collection("classrooms")
+        .doc(classId.value)
+        .collection("attendance")
+        .where("status", isEqualTo: "live")
+        .limit(1)
+        .get();
+
+    if (attendanceSnapshot.docs.isNotEmpty) {
+      String attendanceId = attendanceSnapshot.docs.first.id;
+
+      // ✅ Debug: Print the attendanceId before writing
+      print("📌 DEBUG: Storing attendance in Attendance ID: $attendanceId");
+
+      await FirebaseFirestore.instance
+          .collection("classrooms")
+          .doc(classId.value)
+          .collection("attendance")
+          .doc(attendanceId)
+          .collection("students")
+          .doc(studentId)
+          .set({
+        "studentId": studentId,
+        "attendanceStatus": "Present",
+        "timestamp": FieldValue.serverTimestamp(),
+      });
+
+      isAttendanceMarked.value = true;
+      Get.snackbar("Success", "Attendance marked successfully!");
+
+      // ✅ Delay Firestore read for consistency
+      await Future.delayed(Duration(seconds: 2));
+      await checkStudentAttendance();
+    } else {
+      Get.snackbar("Error", "No active attendance session found.");
+    }
+  }
+
+  /// ✅ **Fetch Class Details**
   /// ✅ **Fetch Class Details**
   Future<void> fetchClassDetails() async {
     try {
@@ -101,18 +175,22 @@ class StudentClassDetailsController extends GetxController {
           data["teacherLocation"]["longitude"],
         );
 
-        correctClassCode.value = data["classCode"];
+        correctClassCode.value = data["classCode"].toString().trim();  // ✅ Ensure String
+        endTime.value = data["endTime"] ?? "";  // ✅ Ensure endTime is set
         classFetched.value = true;
 
-        // ✅ Check if student's attendance is already marked
-        await checkStudentAttendance();
+        print("✅ DEBUG: Correct Class Code Fetched: '${correctClassCode.value}'");  // ✅ Debug log
+
+        Get.snackbar("Success", "Class details fetched successfully!");
       } else {
         Get.snackbar("Error", "No active attendance session found!");
       }
     } catch (e) {
+      print("❌ DEBUG: Failed to Fetch Class Details - $e");
       Get.snackbar("Error", "Failed to fetch class details.");
     }
   }
+
 
   Future<void> fetchStudentsList() async {
     try {
@@ -146,26 +224,32 @@ class StudentClassDetailsController extends GetxController {
       liveClasses.clear();
       previousClasses.clear();
 
+      DateTime now = DateTime.now(); // ✅ Get current time
+
       for (var doc in attendanceSnapshot.docs) {
         var data = doc.data() as Map<String, dynamic>;
 
-        String startTime = data.containsKey("startTime") && data["startTime"] != null
-            ? data["startTime"]
-            : "N/A";
+        String startTime = data["startTime"] ?? "N/A";
+        String endTime = data["endTime"] ?? "N/A";
+        String status = data["status"] ?? "live"; // ✅ Get attendance status
+        DateTime? endDateTime = _parseTime(endTime); // ✅ Convert to DateTime
 
-        String endTime = data.containsKey("endTime") && data["endTime"] != null
-            ? data["endTime"]
-            : "N/A";
+        bool isCompleted = (status == "completed") || (endDateTime != null && now.isAfter(endDateTime));
 
-        bool hasAttended = await checkStudentAttendanceForClass(doc.id);
-
-        if (hasAttended) {
+        if (isCompleted) {
           previousClasses.add({
             "title": "Previous Class",
             "location": "Lat: ${data["teacherLocation"]["latitude"]}, Long: ${data["teacherLocation"]["longitude"]}",
             "date": formatDate(data["createdAt"]),
-            "startTime": startTime
+            "startTime": startTime,
+            "endTime": endTime
           });
+
+          // ✅ Ensure Firestore is updated if it wasn't marked as completed
+          if (status != "completed") {
+            await doc.reference.update({"status": "completed"});
+          }
+
         } else {
           liveClasses.add({
             "title": "Live Class",
@@ -176,9 +260,30 @@ class StudentClassDetailsController extends GetxController {
         }
       }
     } catch (e) {
-      Get.snackbar("Error", "Failed to fetch attendance records.");
+      Get.snackbar("Error", "Failed to fetch attendance records: $e");
     }
   }
+
+  DateTime? _parseTime(String time) {
+    try {
+      final now = DateTime.now();
+      final timeParts = time.split(":");
+      int hour = int.parse(timeParts[0].trim());
+      int minute = int.parse(timeParts[1].split(" ")[0].trim());
+
+      if (time.contains("PM") && hour != 12) {
+        hour += 12; // Convert PM times
+      } else if (time.contains("AM") && hour == 12) {
+        hour = 0; // Midnight case
+      }
+
+      return DateTime(now.year, now.month, now.day, hour, minute);
+    } catch (e) {
+      print("❌ ERROR: Failed to parse time - $e");
+      return null;
+    }
+  }
+
 
   Future<bool> checkStudentAttendanceForClass(String attendanceId) async {
     String studentId = FirebaseAuth.instance.currentUser!.uid;

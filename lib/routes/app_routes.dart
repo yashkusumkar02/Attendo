@@ -19,6 +19,7 @@ class AppRoutes {
   static const String classroomDetails = '/classroom-details'; // ✅ Added here
   static const String classsroomDetails = '/classsroom-details'; // ✅ Added here
   static const String createClass = '/create-class';
+  static const String studentList = '/student-list';
 
   // Student Area
   static const String studentDashboard = '/student-dashboard';
