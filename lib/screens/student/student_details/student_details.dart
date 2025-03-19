@@ -3,16 +3,18 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:attendo/routes/app_routes.dart';
 import 'package:attendo/screens/student/camera_profile/Camera_page.dart';
+import 'package:firebase_database/firebase_database.dart' as rtdb;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:get/get.dart';
 import 'package:camera/camera.dart';
 import 'package:google_ml_kit/google_ml_kit.dart';
+import 'package:path_provider/path_provider.dart';
 
 class StudentProfilePage extends StatefulWidget {
   final String studentId;
 
-  StudentProfilePage({required this.studentId});
+  const StudentProfilePage({Key? key, required this.studentId}) : super(key: key);
 
   @override
   _StudentProfilePageState createState() => _StudentProfilePageState();
@@ -62,15 +64,20 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
           .doc(widget.studentId)
           .get();
 
-      if (studentDoc.exists && studentDoc["faceImageBase64"] != null) {
+      if (studentDoc.exists && studentDoc["profileImageBase64"] != null) {
         setState(() {
-          uploadedImageBase64 = studentDoc["faceImageBase64"];
+          uploadedImageBase64 = studentDoc["profileImageBase64"]; // ✅ Refresh UI
         });
+
+        print("✅ Loaded Profile Image from Firestore");
+      } else {
+        Get.snackbar("Error", "No profile image found for this student.");
       }
     } catch (e) {
       Get.snackbar("Error", "Failed to load profile image: $e");
     }
   }
+
 
   Future<void> _startFaceScan() async {
     final cameras = await availableCameras();
@@ -79,15 +86,21 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
       return;
     }
 
-    final File? capturedImage = await Get.to(() => CameraPage(
+    // ✅ Wait for the image to return from CameraPage
+    final String? capturedImageBase64 = await Get.to(() => CameraPage(
       cameras: cameras,
       studentId: widget.studentId,
     ));
 
-    if (capturedImage != null) {
-      await _convertAndSaveImage(capturedImage);
+    if (capturedImageBase64 != null && capturedImageBase64.isNotEmpty) {
+      setState(() {
+        uploadedImageBase64 = capturedImageBase64; // ✅ Update UI
+      });
+
+      Get.snackbar("Success", "Face image updated!");
     }
   }
+
 
   Future<void> _convertAndSaveImage(File imageFile) async {
     try {
@@ -96,16 +109,20 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
         return;
       }
 
-      List<int> imageBytes = await imageFile.readAsBytes();
+      // ✅ Convert Image to JPG Format and Store Locally
+      final Directory storageDir = await getApplicationDocumentsDirectory();
+      final String newPath = '${storageDir.path}/${widget.studentId}.jpg';
+      File jpgFile = await imageFile.copy(newPath);
+
+      // ✅ Convert Image to Base64 String
+      List<int> imageBytes = await jpgFile.readAsBytes();
       String base64Image = base64Encode(imageBytes);
 
-      await FirebaseFirestore.instance
-          .collection("students")
-          .doc(widget.studentId)
-          .update({"faceImageBase64": base64Image});
+      // ✅ Store Base64 String in Firestore (Instead of Realtime Database)
+      await _storeImageInFirestore(base64Image);
 
       setState(() {
-        uploadedImageBase64 = base64Image;
+        uploadedImageBase64 = base64Image; // Store for UI update
       });
 
       Get.snackbar("Success", "Face image saved successfully!");
@@ -113,6 +130,23 @@ class _StudentProfilePageState extends State<StudentProfilePage> {
       Get.snackbar("Error", "Failed to save image: $e");
     }
   }
+
+  Future<void> _storeImageInFirestore(String base64Image) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection("students")
+          .doc(widget.studentId)
+          .update({
+        "profileImageBase64": base64Image, // ✅ Store Base64 image in Firestore
+      });
+
+      print("✅ Firestore Updated with Base64 Image");
+    } catch (e) {
+      print("❌ Firestore Update Error: $e");
+      Get.snackbar("Error", "Failed to update Firestore: $e");
+    }
+  }
+
 
   void _submitAndProceed() {
     if (uploadedImageBase64 != null) {

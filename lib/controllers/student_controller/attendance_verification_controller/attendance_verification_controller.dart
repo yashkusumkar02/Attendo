@@ -1,26 +1,22 @@
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:image/image.dart' as img;
 import 'package:attendo/routes/app_routes.dart';
 import 'package:attendo/screens/student/camera_screen/camera_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_ml_kit/google_ml_kit.dart';
 import 'package:latlong2/latlong.dart';
 import 'dart:io';
-import 'package:path_provider/path_provider.dart';
-import 'dart:typed_data';
 
 class AttendanceVerificationController extends GetxController {
   var classId = "".obs;
   var className = "".obs;
   var faceScanned = false.obs;
-  var locationVerified = false.obs;
   var studentLocation = Rx<LatLng?>(null);
   var teacherLocation = Rx<LatLng?>(null);
   var correctClassCode = "".obs;
@@ -56,8 +52,6 @@ class AttendanceVerificationController extends GetxController {
       correctClassCode.value = data["classCode"].toString().trim();
       endTime.value = data["endTime"];
       classFetched.value = true;
-
-      Get.snackbar("Success", "Class details fetched successfully!");
     } else {
       Get.snackbar("Error", "No active attendance session found!");
     }
@@ -68,10 +62,6 @@ class AttendanceVerificationController extends GetxController {
     LocationPermission permission = await Geolocator.requestPermission();
     Position position = await Geolocator.getCurrentPosition();
     studentLocation.value = LatLng(position.latitude, position.longitude);
-
-    if (!isWithinAllowedDistance()) {
-      _showLocationErrorDialog();
-    }
   }
 
   /// ✅ **Check if Student is within 50m**
@@ -87,7 +77,7 @@ class AttendanceVerificationController extends GetxController {
   /// ✅ **Scan Face and Verify**
   Future<void> scanFace() async {
     if (!isWithinAllowedDistance()) {
-      _showLocationErrorDialog();
+      Get.snackbar("Error", "You are too far from the teacher’s location!");
       return;
     }
 
@@ -99,11 +89,11 @@ class AttendanceVerificationController extends GetxController {
       return;
     }
 
-    // ✅ Verify Face with Firebase
+    // ✅ Verify Face with Image Processing
     bool isFaceMatched = await verifyFace(imagePath);
 
     if (isFaceMatched) {
-      faceScanned.value = true;  // ✅ Update UI
+      faceScanned.value = true;
       Get.snackbar("Success", "Face successfully verified.");
     } else {
       Get.snackbar("Error", "Face mismatch! Please try again.");
@@ -141,34 +131,27 @@ class AttendanceVerificationController extends GetxController {
     await markAttendance();
   }
 
-
   /// ✅ **Check if Attendance Time is Over**
   bool _isAttendanceTimeOver() {
     if (endTime.value.isEmpty) return false;
 
-    // ✅ Get current date
     DateTime now = DateTime.now();
-
-    // ✅ Parse Firestore `endTime` with today's date
     DateTime classEndTime = DateFormat("h:mm a").parse(endTime.value);
     classEndTime = DateTime(now.year, now.month, now.day, classEndTime.hour, classEndTime.minute);
-
-    print("⏳ Current Time: ${now.toString()}");
-    print("⏰ Class End Time: ${classEndTime.toString()}");
 
     return now.isAfter(classEndTime);
   }
 
   /// ✅ **Mark Attendance**
   Future<void> markAttendance() async {
-    print("🔥 DEBUG: `markAttendance()` called from AttendanceVerificationController");
-
     String studentId = FirebaseAuth.instance.currentUser!.uid;
+
+    // ✅ Storing attendance inside the latest session
     await FirebaseFirestore.instance
         .collection("classrooms")
         .doc(classId.value)
         .collection("attendance")
-        .doc(correctClassCode.value)
+        .doc(correctClassCode.value) // ✅ Uses latest attendance session
         .collection("students")
         .doc(studentId)
         .set({
@@ -178,160 +161,86 @@ class AttendanceVerificationController extends GetxController {
     });
 
     Get.snackbar("Success", "Attendance marked successfully!");
-
-    // ✅ Redirect to Student Class Details instead of Teacher's
     Get.offNamed(AppRoutes.studentClassDetails, arguments: {"classId": classId.value});
   }
 
 
-
-
-  /// ✅ **Verify Face with Firebase**
-  /// ✅ **Verify Face with Firebase**
+  /// ✅ **Verify Face Using Image Processing**
   Future<bool> verifyFace(String capturedImagePath) async {
     try {
       String studentId = FirebaseAuth.instance.currentUser!.uid;
 
-      // ✅ 1. Fetch Student's Registered Face (Base64)
-      DocumentSnapshot studentDoc = await FirebaseFirestore.instance.collection("students").doc(studentId).get();
+      // ✅ Fetch Registered Face from Firestore
+      DocumentSnapshot studentDoc = await FirebaseFirestore.instance
+          .collection("students")
+          .doc(studentId)
+          .get();
 
-      if (!studentDoc.exists || !studentDoc.data().toString().contains("faceImageBase64")) {
+      if (!studentDoc.exists || !studentDoc.data().toString().contains("profileImageBase64")) {
         print("❌ ERROR: No registered face found in Firestore.");
         return false;
       }
 
-      String base64Face = studentDoc["faceImageBase64"];
-      Uint8List registeredFaceBytes = base64Decode(base64Face);
+      String base64RegisteredFace = studentDoc["profileImageBase64"];
 
-      // ✅ 2. Save Registered Face Locally
-      final Directory tempDir = await getTemporaryDirectory();
-      final File registeredFaceFile = File('${tempDir.path}/registered_face.jpg');
-      await registeredFaceFile.writeAsBytes(registeredFaceBytes);
+      // ✅ Convert Registered Face to Image
+      Uint8List registeredFaceBytes = base64Decode(base64RegisteredFace);
+      img.Image? registeredFaceImage = img.decodeImage(registeredFaceBytes);
+      if (registeredFaceImage == null) return false;
 
-      // ✅ 3. Initialize Face Detector with Landmark Detection
-      FaceDetector faceDetector = GoogleMlKit.vision.faceDetector(
-        FaceDetectorOptions(
-          enableClassification: true,
-          enableLandmarks: true,  // ✅ Required for feature extraction
-          enableContours: true,   // ✅ Improves accuracy
-        ),
-      );
+      // ✅ Convert Captured Face to Image
+      File capturedFile = File(capturedImagePath);
+      Uint8List capturedFaceBytes = await capturedFile.readAsBytes();
+      img.Image? capturedFaceImage = img.decodeImage(capturedFaceBytes);
+      if (capturedFaceImage == null) return false;
 
-      // ✅ 4. Process Both Images
-      List<Face> capturedFaces = await faceDetector.processImage(InputImage.fromFile(File(capturedImagePath)));
-      List<Face> registeredFaces = await faceDetector.processImage(InputImage.fromFile(registeredFaceFile));
+      // ✅ Resize Captured Image to Match Registered Face
+      img.Image resizedCapturedFace = img.copyResize(capturedFaceImage, width: registeredFaceImage.width, height: registeredFaceImage.height);
 
-      faceDetector.close();
+      // ✅ Convert Both Images to Grayscale
+      img.Image grayRegistered = img.grayscale(registeredFaceImage);
+      img.Image grayCaptured = img.grayscale(resizedCapturedFace);
 
-      // ✅ Debugging: Print detected faces
-      print("📸 Captured Faces: ${capturedFaces.length}");
-      print("🖼️ Registered Faces: ${registeredFaces.length}");
+      // ✅ Compare Faces
+      bool isMatched = compareFaces(grayRegistered, grayCaptured);
 
-      // ✅ 5. Ensure Faces Exist
-      if (capturedFaces.isEmpty || registeredFaces.isEmpty) {
-        print("❌ ERROR: No faces detected.");
-        return false;
-      }
-
-      // ✅ 6. Extract Feature Vectors (Bounding Box and Key Landmarks)
-      Face capturedFace = capturedFaces.first;
-      Face registeredFace = registeredFaces.first;
-
-      // ✅ 7. Compare Face Features
-      double similarityScore = calculateFaceSimilarity(capturedFace, registeredFace);
-      print("📊 Face Similarity Score: $similarityScore");
-
-      // ✅ 8. Return Match Result (Threshold: 80%)
-      return similarityScore >= 0.80;
+      print("✅ Face Match Result: $isMatched");
+      return isMatched;
     } catch (e) {
       print("🔥 ERROR: Face Verification Failed - $e");
       return false;
     }
   }
 
+  /// ✅ **Compare Faces with Adjusted Similarity Check**
+  bool compareFaces(img.Image img1, img.Image img2) {
+    if (img1.width != img2.width || img1.height != img2.height) {
+      img2 = img.copyResize(img2, width: img1.width, height: img1.height);
+    }
 
-  double calculateFaceSimilarity(Face face1, Face face2) {
-    Map<FaceContourType, FaceContour?> contours1 = face1.contours;
-    Map<FaceContourType, FaceContour?> contours2 = face2.contours;
+    int totalPixels = img1.width * img1.height;
+    int matchedPixels = 0;
 
-    if (contours1.isEmpty || contours2.isEmpty) return 0.0;  // ✅ Ensure return
+    for (int y = 0; y < img1.height; y++) {
+      for (int x = 0; x < img1.width; x++) {
+        img.Pixel pixel1 = img1.getPixel(x, y);
+        img.Pixel pixel2 = img2.getPixel(x, y);
 
-    double sumOfDifferences = 0.0;
-    int totalPoints = 0;
+        int r1 = pixel1.r.toInt(), g1 = pixel1.g.toInt(), b1 = pixel1.b.toInt();
+        int r2 = pixel2.r.toInt(), g2 = pixel2.g.toInt(), b2 = pixel2.b.toInt();
 
-    // ✅ Compare Each Landmark Point
-    for (FaceContourType type in FaceContourType.values) {
-      if (contours1[type] != null && contours2[type] != null) {
-        List<Point<int>> points1 = contours1[type]!.points;
-        List<Point<int>> points2 = contours2[type]!.points;
+        // ✅ Compute Euclidean distance in RGB space
+        double diff = sqrt(pow(r1 - r2, 2) + pow(g1 - g2, 2) + pow(b1 - b2, 2));
 
-        for (int i = 0; i < points1.length && i < points2.length; i++) {
-          sumOfDifferences += (points1[i].x - points2[i].x).abs() +
-              (points1[i].y - points2[i].y).abs();
-          totalPoints++;
+        if (diff < 50) { // ✅ Allow small differences due to lighting variations
+          matchedPixels++;
         }
       }
     }
 
-    // ✅ Ensure there are valid points to avoid division by zero
-    return totalPoints > 0 ? 1 - (sumOfDifferences / (totalPoints * 100)) : 0.0;
-  }
+    double similarity = (matchedPixels / totalPixels) * 100;
+    print("🔹 Similarity Score: $similarity%");
 
-
-  /// ✅ **Extract Face Features for Comparison**
-  List<double> extractFaceFeatures(Face face) {
-    List<double> features = [];
-
-    if (face.contours[FaceContourType.face] != null) {
-      for (var point in face.contours[FaceContourType.face]!.points) {
-        features.add(point.x.toDouble());
-        features.add(point.y.toDouble());
-      }
-    }
-
-    return features;
-  }
-
-  /// ✅ **Calculate Cosine Similarity between Two Feature Sets**
-  double cosineSimilarity(List<double> vectorA, List<double> vectorB) {
-    double dotProduct = 0.0;
-    double normA = 0.0;
-    double normB = 0.0;
-
-    for (int i = 0; i < vectorA.length; i++) {
-      dotProduct += vectorA[i] * vectorB[i];
-      normA += vectorA[i] * vectorA[i];
-      normB += vectorB[i] * vectorB[i];
-    }
-
-    return dotProduct / (sqrt(normA) * sqrt(normB));
-  }
-
-
-  /// ✅ **Download Image from Firebase Storage**
-  Future<File> downloadImageFromFirebase(String imageUrl) async {
-    final Directory tempDir = await getTemporaryDirectory();
-    final String filePath = '${tempDir.path}/student_face.jpg';
-    File file = File(filePath);
-    await FirebaseStorage.instance.refFromURL(imageUrl).writeToFile(file);
-    return file;
-  }
-
-
-
-
-  /// ✅ **Show Location Error**
-  void _showLocationErrorDialog() {
-    Get.defaultDialog(
-      title: "Location Error",
-      content: Column(
-        children: [
-          Icon(Icons.location_off, color: Colors.red, size: 50),
-          SizedBox(height: 10),
-          Text("You are too far from the teacher's location!"),
-        ],
-      ),
-      confirm: ElevatedButton(onPressed: () => Get.back(), child: Text("OK")),
-    );
+    return similarity >= 25; // ✅ Adjust threshold if needed
   }
 }

@@ -25,22 +25,25 @@ class StudentDashboard extends StatelessWidget {
               style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black),
             )),
             GestureDetector(
-              onTap: () {
-                Get.to(() => StudentProfileScreen());
+              onTap: () async {
+                await Get.to(() => StudentProfileScreen());
+                controller.fetchStudentData(); // ✅ Fetch latest profile data after returning
               },
-              child: Obx(() => CircleAvatar(
-                backgroundImage: controller.profileImage.value.isNotEmpty
-                    ? MemoryImage(base64Decode(controller.profileImage.value) as Uint8List)
-                    : AssetImage("assets/images/teacher_profile.png") as ImageProvider,
-              )),
+              child: Obx(() {
+                return CircleAvatar(
+                  backgroundImage: controller.profileImage.value.isNotEmpty
+                      ? MemoryImage(Uint8List.fromList(base64Decode(controller.profileImage.value)))
+                      : AssetImage("assets/images/teacher_profile.png") as ImageProvider, // ✅ Default image if missing
+                );
+              }),
             ),
           ],
         ),
       ),
       body: RefreshIndicator(
         onRefresh: () async {
-          controller.fetchStudentData();
-          controller.fetchJoinedClassrooms(); // ✅ Refresh classroom list
+          await controller.fetchStudentData(); // ✅ Fix async call
+          await controller.fetchJoinedClassrooms();
         },
         child: Padding(
           padding: const EdgeInsets.all(20.0),
@@ -68,11 +71,16 @@ class StudentDashboard extends StatelessWidget {
                   style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold)),
               SizedBox(height: 10),
 
-              // ✅ Show Joined Classrooms in the required format
               Expanded(
-                  child: Obx(() => controller.joinedClassrooms.isEmpty
-                      ? Center(child: Text("No joined classrooms", style: GoogleFonts.poppins(fontSize: 16)))
-                      : ListView.builder(
+                child: Obx(() => controller.joinedClassrooms.isEmpty
+                    ? Center(child: Text("No joined classrooms", style: GoogleFonts.poppins(fontSize: 16)))
+                    : RefreshIndicator(
+                  onRefresh: () async {
+                    await controller.fetchStudentData();
+                    await controller.fetchJoinedClassrooms();
+                  },
+                  child: ListView.builder(
+                    physics: AlwaysScrollableScrollPhysics(),
                     itemCount: controller.joinedClassrooms.length,
                     itemBuilder: (context, index) {
                       var classroom = controller.joinedClassrooms[index];
@@ -100,7 +108,6 @@ class StudentDashboard extends StatelessWidget {
 
                               SizedBox(height: 10),
 
-                              // ✅ "Next" Button for navigation
                               Align(
                                 alignment: Alignment.centerRight,
                                 child: ElevatedButton(
@@ -128,7 +135,9 @@ class StudentDashboard extends StatelessWidget {
                         ),
                       );
                     },
-                  ))),
+                  ),
+                )),
+              ),
             ],
           ),
         ),

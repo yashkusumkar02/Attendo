@@ -34,11 +34,18 @@ class StudentClassDetailsScreen extends StatelessWidget {
             ],
           ),
         ),
-        body: TabBarView(
-          children: [
-            _buildClassTab(),
-            _buildStudentsTab(),
-          ],
+        body: RefreshIndicator(
+          onRefresh: () async {
+            await controller.checkStudentAttendance(); // ✅ Refresh attendance status
+            await controller.fetchAttendanceRecords(); // ✅ Refresh attendance data
+            await controller.fetchStudentsList(); // ✅ Refresh student list
+          },
+          child: TabBarView(
+            children: [
+              _buildClassTab(),
+              _buildStudentsTab(),
+            ],
+          ),
         ),
       ),
     );
@@ -46,65 +53,63 @@ class StudentClassDetailsScreen extends StatelessWidget {
 
   /// 📌 CLASS TAB (Attendance, Live & Previous Classes)
   Widget _buildClassTab() {
-    return Padding(
-      padding: const EdgeInsets.all(15.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Obx(() => Text("Teacher: ${controller.teacherName.value}",
-              style: GoogleFonts.poppins(fontSize: 16))),
-          Obx(() => Text("Semester: ${controller.semester.value}",
-              style: GoogleFonts.poppins(fontSize: 16))),
-          Obx(() => Text("Year: ${controller.year.value}",
-              style: GoogleFonts.poppins(fontSize: 16))),
+    return SingleChildScrollView(
+      physics: AlwaysScrollableScrollPhysics(),
+      child: Padding(
+        padding: const EdgeInsets.all(15.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Obx(() => Text("Teacher: ${controller.teacherName.value}", style: GoogleFonts.poppins(fontSize: 16))),
+            Obx(() => Text("Semester: ${controller.semester.value}", style: GoogleFonts.poppins(fontSize: 16))),
+            Obx(() => Text("Year: ${controller.year.value}", style: GoogleFonts.poppins(fontSize: 16))),
 
-          SizedBox(height: 20),
+            SizedBox(height: 20),
 
-          Text("Live Classes", style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold)),
-          SizedBox(height: 10),
-          Obx(() => controller.liveClasses.isEmpty
-              ? Text("No live classes", style: GoogleFonts.poppins(fontSize: 14))
-              : Column(
-            children: controller.liveClasses.map((liveClass) => _liveClassTile(liveClass)).toList(),
-          )),
+            Text("Live Classes", style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold)),
+            SizedBox(height: 10),
+            Obx(() => controller.liveClasses.isEmpty
+                ? Text("No live classes", style: GoogleFonts.poppins(fontSize: 14))
+                : Column(
+              children: controller.liveClasses.map((liveClass) => _liveClassTile(liveClass)).toList(),
+            )),
 
-          SizedBox(height: 20),
+            SizedBox(height: 20),
 
-          Text("Previous Classes", style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold)),
-          SizedBox(height: 10),
-          Obx(() => controller.previousClasses.isEmpty
-              ? Text("No previous classes", style: GoogleFonts.poppins(fontSize: 14))
-              : Column(
-            children: controller.previousClasses.map((prevClass) => _previousClassTile(prevClass)).toList(),
-          )),
-        ],
+            Text("Previous Classes", style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold)),
+            SizedBox(height: 10),
+            Obx(() => controller.previousClasses.isEmpty
+                ? Text("No previous classes", style: GoogleFonts.poppins(fontSize: 14))
+                : Column(
+              children: controller.previousClasses.map((prevClass) => _previousClassTile(prevClass)).toList(),
+            )),
+          ],
+        ),
       ),
     );
   }
 
   /// ✅ STUDENTS TAB (Fetch Student List from Firestore)
   Widget _buildStudentsTab() {
-    return Padding(
-      padding: const EdgeInsets.all(15.0),
-      child: Obx(() {
-        if (controller.studentsList.isEmpty) {
-          return Center(
-            child: Text(
-              "No students joined yet.",
-              style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey),
-            ),
-          );
-        }
-
-        return ListView.builder(
-          itemCount: controller.studentsList.length,
-          itemBuilder: (context, index) {
-            var student = controller.studentsList[index];
-            return _studentCard(student["name"], student["status"]);
-          },
+    return Obx(() {
+      if (controller.studentsList.isEmpty) {
+        return Center(
+          child: Text(
+            "No students joined yet.",
+            style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey),
+          ),
         );
-      }),
-    );
+      }
+
+      return ListView.builder(
+        physics: AlwaysScrollableScrollPhysics(),
+        itemCount: controller.studentsList.length,
+        itemBuilder: (context, index) {
+          var student = controller.studentsList[index];
+          return _studentCard(student["name"], student["status"]);
+        },
+      );
+    });
   }
 
   /// ✅ LIVE CLASS CARD (Displays Class Timing)
@@ -125,29 +130,32 @@ class StudentClassDetailsScreen extends StatelessWidget {
             Text("Location: ${liveClass["location"]}", style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey)),
           ],
         ),
-        trailing: Obx(() => controller.isAttendanceMarked.value
-            ? Text(
-          "Attendance Marked ✅",
-          style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
-        )
-            : SizedBox(
-          width: 140,
-          height: 40,
-          child: ElevatedButton(
-            onPressed: () {
-              final classController = Get.find<StudentClassDetailsController>();
-              classController.navigateToAttendanceVerification(); // ✅ Redirect to verification
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
+        trailing: Obx(() {
+          return controller.isAttendanceMarked.value
+              ? Text(
+            "Attendance Marked ✅",
+            style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+          )
+              : SizedBox(
+            width: 140,
+            height: 40,
+            child: ElevatedButton(
+              onPressed: () async {
+                await controller.checkStudentAttendance(); // ✅ Ensure real-time status update
+                if (!controller.isAttendanceMarked.value) {
+                  controller.navigateToAttendanceVerification(); // ✅ Redirect to verification
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: controller.isAttendanceMarked.value ? Colors.grey : Colors.blue,
+              ),
+              child: Text("Take Attendance", style: TextStyle(fontSize: 14, color: Colors.white)),
             ),
-            child: Text("Take Attendance", style: TextStyle(fontSize: 14, color: Colors.white)),
-          ),
-        )),
+          );
+        }),
       ),
     );
   }
-
 
   /// ✅ PREVIOUS CLASS CARD
   Widget _previousClassTile(Map<String, dynamic> prevClass) {

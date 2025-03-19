@@ -14,6 +14,7 @@ class _CameraScreenState extends State<CameraScreen> {
   CameraController? _cameraController;
   List<CameraDescription>? cameras;
   bool _isCameraInitialized = false;
+  bool _isCapturing = false;
 
   @override
   void initState() {
@@ -22,13 +23,26 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _initializeCamera() async {
-    cameras = await availableCameras();
-    if (cameras!.isNotEmpty) {
-      _cameraController = CameraController(cameras![1], ResolutionPreset.high);
+    try {
+      cameras = await availableCameras();
+      if (cameras == null || cameras!.isEmpty) {
+        Get.snackbar("Camera Error", "No cameras available.");
+        return;
+      }
+
+      // ✅ Ensure front camera is selected
+      CameraDescription frontCamera = cameras!.firstWhere(
+            (camera) => camera.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras!.first, // Default to first camera if no front
+      );
+
+      _cameraController = CameraController(frontCamera, ResolutionPreset.high);
       await _cameraController!.initialize();
       setState(() {
         _isCameraInitialized = true;
       });
+    } catch (e) {
+      Get.snackbar("Camera Error", "Failed to initialize camera: $e");
     }
   }
 
@@ -39,21 +53,31 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _captureImage() async {
-    if (!_cameraController!.value.isInitialized) {
+    if (!_cameraController!.value.isInitialized || _isCapturing) {
       return;
     }
 
-    final XFile image = await _cameraController!.takePicture();
-    final Directory appDir = await getApplicationDocumentsDirectory();
-    final String imagePath = join(appDir.path, '${DateTime.now()}.jpg');
+    setState(() {
+      _isCapturing = true;
+    });
 
-    File(image.path).copy(imagePath);
+    try {
+      final XFile image = await _cameraController!.takePicture();
+      final Directory appDir = await getApplicationDocumentsDirectory();
+      final String imagePath = join(appDir.path, '${DateTime.now()}.jpg');
 
-    // ✅ Pass the image path back to the verification screen
-    Get.back(result: imagePath);
+      await File(image.path).copy(imagePath);
+
+      // ✅ Pass the image path back to the attendance verification screen
+      Get.back(result: imagePath);
+    } catch (e) {
+      Get.snackbar("Capture Error", "Failed to take picture: $e");
+    } finally {
+      setState(() {
+        _isCapturing = false;
+      });
+    }
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -66,9 +90,13 @@ class _CameraScreenState extends State<CameraScreen> {
             bottom: 30,
             left: 0,
             right: 0,
-            child: IconButton(
-              icon: Icon(Icons.camera, size: 60, color: Colors.white),
-              onPressed: _captureImage,
+            child: GestureDetector(
+              onTap: _captureImage,
+              child: Icon(
+                _isCapturing ? Icons.camera_alt_outlined : Icons.camera,
+                size: 60,
+                color: Colors.white,
+              ),
             ),
           ),
         ],

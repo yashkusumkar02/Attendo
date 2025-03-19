@@ -1,9 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
+import 'package:attendo/controllers/student_controller/student_dashboard_controller/student_controller.dart';
 import 'package:camera/camera.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_ml_kit/google_ml_kit.dart';
 import 'dart:async';
+import 'package:permission_handler/permission_handler.dart';
 
 class CameraPage extends StatefulWidget {
   final List<CameraDescription>? cameras;
@@ -18,11 +22,9 @@ class CameraPage extends StatefulWidget {
 class _CameraPageState extends State<CameraPage> {
   CameraController? _cameraController;
   bool isCapturing = false;
-  FaceDetector faceDetector = GoogleMlKit.vision.faceDetector(
-    FaceDetectorOptions(
+  FaceDetector faceDetector = FaceDetector(
+    options: FaceDetectorOptions(
       enableClassification: true,
-      enableLandmarks: true,
-      enableContours: true,
       performanceMode: FaceDetectorMode.accurate,
     ),
   );
@@ -37,26 +39,40 @@ class _CameraPageState extends State<CameraPage> {
   }
 
   Future<void> _initializeCamera() async {
+    WidgetsFlutterBinding.ensureInitialized(); // ✅ Ensures Flutter is ready
+
+    PermissionStatus status = await Permission.camera.request();
+    if (!status.isGranted) {
+      Get.snackbar("Permission Denied", "Camera permission is required!");
+      return;
+    }
+
     try {
       if (widget.cameras == null || widget.cameras!.isEmpty) {
         Get.snackbar("Error", "No cameras available");
         return;
       }
+
       _cameraController = CameraController(
         widget.cameras![selectedCameraIndex],
-        ResolutionPreset.medium,
+        ResolutionPreset.high,
+        enableAudio: false,
       );
+
       await _cameraController!.initialize();
       if (!mounted) return;
+
       setState(() {});
     } catch (e) {
-      Get.snackbar("Error", "Camera failed to initialize: $e");
+      Get.snackbar("Error", "Camera initialization failed: $e");
     }
   }
 
-  void _switchCamera() {
+  void _switchCamera() async {
     if (widget.cameras!.length > 1) {
       selectedCameraIndex = (selectedCameraIndex + 1) % widget.cameras!.length;
+
+      await _cameraController?.dispose(); // Ensure old controller is disposed
       _initializeCamera();
     }
   }
@@ -72,20 +88,32 @@ class _CameraPageState extends State<CameraPage> {
     if (_cameraController == null || !_cameraController!.value.isInitialized) return;
 
     try {
+      await Future.delayed(Duration(milliseconds: 500)); // Ensure frame stability
       final XFile image = await _cameraController!.takePicture();
       File imageFile = File(image.path);
+
+      if (!await imageFile.exists()) {
+        Get.snackbar("Error", "Failed to capture image. Try again.");
+        return;
+      }
+
       bool isRealPerson = await _verifyLiveness(imageFile);
 
-      if (isRealPerson) {
-        setState(() {
-          faceDetected = true;
-        });
-        Get.snackbar("Face Detected", "Wait and look forward. Capturing in 5 seconds...");
-        await Future.delayed(Duration(seconds: 5));
-        _captureImage();
-      } else {
-        Get.snackbar("Error", "Liveness detection failed! Please try again.");
+      if (!isRealPerson) {
+        Get.snackbar("Error", "Liveness detection failed! Try again.");
+        return;
       }
+
+      setState(() {
+        faceDetected = true;
+      });
+
+      Get.snackbar("Face Detected", "Wait and look forward. Capturing final image...");
+
+      await Future.delayed(Duration(seconds: 2));
+
+      print("✅ Calling _captureImage()...");  // Debugging output
+      await _captureImage(); // Ensure this function runs
     } catch (e) {
       Get.snackbar("Error", "Failed to Capture Image: $e");
     }
@@ -100,10 +128,32 @@ class _CameraPageState extends State<CameraPage> {
 
     try {
       final XFile image = await _cameraController!.takePicture();
-      File imageFile = File(image.path);
-      Get.back(result: imageFile);
+      final File originalFile = File(image.path);
+
+      print("✅ Image Captured at: ${originalFile.path}");
+
+      // ✅ Convert Image to Base64
+      List<int> imageBytes = await originalFile.readAsBytes();
+      String base64Image = base64Encode(imageBytes);
+
+      print("✅ Image Converted to Base64");
+
+      // ✅ Store Image in Firestore
+      await _updateFirestoreProfile(base64Image);
+
+      // ✅ Update the StudentDashboardController after capturing the image
+      StudentDashboardController controller = Get.find();
+      controller.profileImage.value = base64Image;
+
+      // ✅ Navigate back to StudentProfilePage with the updated image
+      Get.snackbar("Success", "Face image saved successfully!");
+      Future.delayed(Duration(seconds: 1), () {
+        Get.offAllNamed('/StudentProfilePage', arguments: {"studentId": widget.studentId});
+      });
+
     } catch (e) {
       Get.snackbar("Error", "Failed to Capture Image: $e");
+      print("❌ Capture Image Error: $e");
     } finally {
       setState(() {
         isCapturing = false;
@@ -111,9 +161,33 @@ class _CameraPageState extends State<CameraPage> {
     }
   }
 
+  Future<void> _updateFirestoreProfile(String base64Image) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection("students")
+          .doc(widget.studentId)
+          .update({
+        "faceImageBase64": base64Image, // ✅ Store Base64 image in Firestore
+      });
+
+      print("✅ Firestore Updated with Base64 Image");
+
+      // ✅ Ensure Navigation Back After Firestore Update
+      Future.delayed(Duration(seconds: 1), () {
+        Get.offAllNamed('/student-details', arguments: {"studentId": widget.studentId});
+      });
+
+    } catch (e) {
+      print("❌ Firestore Update Error: $e");
+      Get.snackbar("Error", "Failed to update Firestore: $e");
+    }
+  }
+
   Future<bool> _verifyLiveness(File imageFile) async {
     final inputImage = InputImage.fromFile(imageFile);
     final List<Face> faces = await faceDetector.processImage(inputImage);
+
+    print("✅ Detected ${faces.length} faces");  // Debugging output
 
     if (faces.isEmpty) {
       Get.snackbar("Error", "No face detected! Try again.");
@@ -121,26 +195,44 @@ class _CameraPageState extends State<CameraPage> {
     }
 
     Face face = faces.first;
-    bool isEyeOpen = (face.leftEyeOpenProbability ?? 0) > 0.2 &&
-        (face.rightEyeOpenProbability ?? 0) > 0.2;
+    print("🔹 Eye Open Probability: ${face.leftEyeOpenProbability}, ${face.rightEyeOpenProbability}");
+    print("🔹 Head Euler Angle: Y = ${face.headEulerAngleY}, Z = ${face.headEulerAngleZ}");
+    print("🔹 Smile Probability: ${face.smilingProbability}");
 
-    bool hasHeadMovement = (face.headEulerAngleY ?? 0).abs() > 5 ||
-        (face.headEulerAngleZ ?? 0).abs() > 5;
-
-    bool hasMouthMovement = (face.smilingProbability ?? 0) > 0.3;
+    bool isEyeOpen = (face.leftEyeOpenProbability ?? 0) > 0.2;  // ⬇️ Lowered from 0.3
+    bool hasHeadMovement = (face.headEulerAngleY ?? 0).abs() > 3 ||
+        (face.headEulerAngleZ ?? 0).abs() > 3;  // ⬇️ Lowered from 5
+    bool hasMouthMovement = (face.smilingProbability ?? 0) > 0.2;  // ⬇️ Lowered from 0.3
 
     if (!isEyeOpen) {
-      Get.snackbar("Error", "Please blink your eyes for verification.");
+      Get.snackbar("Error", "Blink your eyes for verification.");
       return false;
     }
+
+    await Future.delayed(Duration(seconds: 1)); // ⏳ Allow face processing time
+
+    if (!isEyeOpen) {
+      Get.snackbar("Error", "Blink your eyes for verification.");
+      return false;
+    }
+
+    await Future.delayed(Duration(seconds: 1));
 
     if (!hasHeadMovement) {
       Get.snackbar("Error", "Move your head slightly for verification.");
       return false;
     }
 
+    await Future.delayed(Duration(seconds: 1));
+
+    if (!hasMouthMovement) {
+      Get.snackbar("Error", "Smile or move your mouth for verification.");
+      return false;
+    }
+
     return true;
   }
+
 
   @override
   Widget build(BuildContext context) {

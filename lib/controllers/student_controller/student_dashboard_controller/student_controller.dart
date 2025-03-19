@@ -11,7 +11,8 @@ class StudentDashboardController extends GetxController {
   void onInit() {
     super.onInit();
     fetchStudentData();
-    fetchJoinedClassrooms(); // ✅ Fetch joined classrooms
+    fetchJoinedClassrooms();
+    ever(profileImage, (_) => update());// ✅ Fetch joined classrooms
   }
 
   // ✅ Fetch Student Data from Firestore
@@ -27,19 +28,29 @@ class StudentDashboardController extends GetxController {
       await FirebaseFirestore.instance.collection("students").doc(user.uid).get();
 
       if (studentDoc.exists) {
-        studentName.value = studentDoc["name"] ?? "Student";
-        profileImage.value = studentDoc["faceImageBase64"] ?? "";
+        Map<String, dynamic>? studentData = studentDoc.data() as Map<String, dynamic>?;
+
+        studentName.value = studentData?["name"] ?? "Student";
+
+        // ✅ Check if 'faceImageBase64' field exists before accessing it
+        if (studentData?.containsKey("profileImageBase64") == true) {
+          profileImage.value = studentData?["profileImageBase64"] ?? "";
+        } else {
+          print("⚠️ faceImageBase64 field does not exist. Using default image.");
+          profileImage.value = ""; // Set to an empty string or default image
+        }
       } else {
         Get.snackbar("Error", "Student details not found.");
         Get.offAllNamed('/role-selection');
       }
     } catch (e) {
       Get.snackbar("Error", "Failed to fetch student details: $e");
+      print("❌ Fetch Student Data Error: $e");
     }
   }
 
   // ✅ Fetch Joined Classrooms (Fetch Semester from the Classroom Database)
-  void fetchJoinedClassrooms() {
+  Future<void> fetchJoinedClassrooms() async {
     User? user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
@@ -76,9 +87,12 @@ class StudentDashboardController extends GetxController {
         }
       }
 
-      joinedClassrooms.assignAll(joinedClassesList); // ✅ Real-time update!
+      joinedClassrooms.assignAll(joinedClassesList);
     });
+
+    update(); // ✅ Force update UI
   }
+
 
   // ✅ Fetch Teacher Name from `users` Collection
   Future<String> _fetchTeacherName(String teacherId) async {
