@@ -148,7 +148,7 @@ class _CameraPageState extends State<CameraPage> {
       // ✅ Navigate back to StudentProfilePage with the updated image
       Get.snackbar("Success", "Face image saved successfully!");
       Future.delayed(Duration(seconds: 1), () {
-        Get.offAllNamed('/StudentProfilePage', arguments: {"studentId": widget.studentId});
+        Get.offAllNamed('/student-details', arguments: {"studentId": widget.studentId});
       });
 
     } catch (e) {
