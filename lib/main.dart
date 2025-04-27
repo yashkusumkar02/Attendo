@@ -32,12 +32,10 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   await Permission.camera.request();
-
   // ✅ Remove setPersistence for Mobile (ONLY use for Web)
   if (kIsWeb) {
     await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
   }
-
   runApp(MyApp());
 }
 
@@ -104,7 +102,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// ✅ Auto Redirect Based on Login Status
+
 // ✅ Auto Redirect Based on Login Status
 class AuthCheck extends StatelessWidget {
   @override
